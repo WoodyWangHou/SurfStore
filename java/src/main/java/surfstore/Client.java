@@ -1,9 +1,11 @@
 package surfstore;
 
 import java.io.File;
+import java.io.UnsupportedEncodingException;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
+import com.google.protobuf.ByteString;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import net.sourceforge.argparse4j.ArgumentParsers;
@@ -11,6 +13,12 @@ import net.sourceforge.argparse4j.inf.ArgumentParser;
 import net.sourceforge.argparse4j.inf.ArgumentParserException;
 import net.sourceforge.argparse4j.inf.Namespace;
 import surfstore.SurfStoreBasic.Empty;
+import surfstore.SurfStoreBasic.Block;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
 
 
 public final class Client {
@@ -40,15 +48,68 @@ public final class Client {
         metadataChannel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
         blockChannel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
     }
-    
+
+  private void ensure(boolean b){
+    if(!b){
+      throw new RuntimeException("Assertion failed");
+    }
+  }
+
+  private static String HashUtils(String s){
+    MessageDigest digest = null;
+    try{
+        digest = digest.getInstance("SHA-256");
+    }catch(NoSuchAlgorithmException e){
+        e.printStackTrace();
+        System.exit(2);
+    }
+
+    byte[] hash = digest.digest(s.getBytes(StandardCharsets.UTF_8));
+    String encoded = Base64.getEncoder().encodeToString(hash);
+
+    return encoded;
+  }
+
+  private static Block stringToBlock(String s){
+    Block.Builder builder = Block.newBuilder();
+
+    try{
+      builder.setData(ByteString.copyFrom(s, "UTF-8"));
+    }catch (UnsupportedEncodingException e){
+      throw new RuntimeException(e);
+    }
+
+    builder.setHash(HashUtils(s));
+    return builder.build();
+  }
+
 	private void go() {
-		metadataStub.ping(Empty.newBuilder().build());
-        logger.info("Successfully pinged the Metadata server");
-        
+        // TODO: To be commented back when implementing metadataStore
+		    // metadataStub.ping(Empty.newBuilder().build());
+        // logger.info("Successfully pinged the Metadata server");
+
         blockStub.ping(Empty.newBuilder().build());
         logger.info("Successfully pinged the Blockstore server");
-        
+
         // TODO: Implement your client here
+        Block b1 = stringToBlock("block_01");
+        Block b2 = stringToBlock("block_01");
+
+        // TODO: can repalce ensure with jUnit Test
+        ensure(blockStub.hasBlock(b1).getAnswer() == false);
+        ensure(blockStub.hasBlock(b2).getAnswer() == false);
+
+        blockStub.storeBlock(b1);
+        ensure(blockStub.hasBlock(b1).getAnswer() == true);
+
+        blockStub.storeBlock(b2);
+        ensure(blockStub.hasBlock(b2).getAnswer() == true);
+
+        Block b1prime = blockStub.getBlock(b1);
+        ensure(b1prime.getHash().equals(b1.getHash()));
+        ensure(b1prime.getData().equals(b1.getData()));
+
+        logger.info("All test passed");
 	}
 
 	/*
@@ -59,7 +120,7 @@ public final class Client {
                 .description("Client for SurfStore");
         parser.addArgument("config_file").type(String.class)
                 .help("Path to configuration file");
-        
+
         Namespace res = null;
         try {
             res = parser.parseArgs(args);
@@ -79,7 +140,7 @@ public final class Client {
         ConfigReader config = new ConfigReader(configf);
 
         Client client = new Client(config);
-        
+
         try {
         	client.go();
         } finally {
