@@ -98,10 +98,13 @@ service BlockStore {
 // message definitions as you'd like.
 message Empty { }
 
+// Client req only contains filename; server response needs to include all fields
 message FileInfo {
     string filename = 1;
-    int32 version = 2;
-    repeated string blocklist = 3;
+    optional int32 version = 2;
+    optional repeated string blocklist = 3;
+    //deleted = true : file already deleted; false, file exist or not created
+    optional bool deleted = 4;
 }
 
 message Block {
