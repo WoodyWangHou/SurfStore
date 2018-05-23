@@ -62,7 +62,7 @@ service MetadataStore {
 
 	// Returns the current committed version of the requested file
 	// The argument's FileInfo only has the "filename" field defined
-	// The FileInfo returns the filename and version fields only
+	// The FileInfo returns the filename, version, deleted fields only
 	// This should return a result even if the follower is in a
 	//   crashed state
 	rpc GetVersion(FileInfo) returns (FileInfo) {}
@@ -101,8 +101,8 @@ message Empty { }
 // Client req only contains filename; server response needs to include all fields
 message FileInfo {
     string filename = 1;
-    optional int32 version = 2;
-    optional repeated string blocklist = 3;
+    int32 version = 2;
+    repeated string blocklist = 3;
     //deleted = true : file already deleted; false, file exist or not created
     optional bool deleted = 4;
 }
