@@ -31,6 +31,7 @@ import surfstore.SurfStoreBasic.FileInfo;
 import surfstore.Utils.TestUtils;
 import surfstore.Utils.HashUtils;
 import surfstore.Utils.BlockUtils;
+import sutfstore.Utils.FileInfoUtils;
 import surfstore.Configs;
 
 public final class Client {
@@ -81,14 +82,14 @@ public final class Client {
       List<Block> blks = this.getFileBlockList(fileName);
       HashMap<String, Integer> miss_map = new HashMap<String, Integer>();
       // if missing is null, upload all blocks
-      if(missing == null){
+      if(missing == null || missing.size() == 0){
         for(Block blk : blks){
           blockStub.StoreBlock(blk);
-          ensure(blockStub.hasBlock(blk) == true); // to be commented out
+          ensure(blockStub.hasBlock(blk) == true, "blockstore stored failed"); // to be commented out
         }
         return;
       }
-      
+
       // if missing is not null, create map
       for(String hash : missing){
         miss_map.put(hash, 1);
@@ -98,7 +99,7 @@ public final class Client {
         String hash = blk.getHash();
         if(miss_map.containsKey(hash)){
           blockStub.StoreBlock(blk);
-          ensure(blockStub.hasBlock(blk) == true); // to be commented out
+          ensure(blockStub.hasBlock(blk) == true, "blockstore stored failed"); // to be commented out
         }
       }
 
@@ -111,12 +112,7 @@ public final class Client {
     * @return current file on metastore version number
     **/
     private int getFileVersionMetaStore(String fileName){
-        FileInfo.builder builder = FileInfo.newBuilder();
-        builder.setFilename(fileName)
-               .setVersion(0)
-               .setBlocklistList(null);
-
-        FileInfo req = builder.build();
+        FileInfo req = FileInfoUtils.toFileInfo(fileName,0,null,false);
         FileInfo res = metadataStub.getVersion(req);
         return res.getVersion();
     }
@@ -177,18 +173,13 @@ public final class Client {
     /**
     * getMissingBlocks: Query metastore to get missing blocks
     * @param fileName the name of file
-    * @param version version of the file
+    * @param version current version of the file
     * @return WriteResult check result from MetaDataStore, which contains missing blocks
     **/
 
     private WriteResult updateMetaStore(String fileName, int version){
-        FileInfo.buidler builder = FileInfo.newBuilder();
         List<String> hashList = this.getFileHashList(fileName);
-
-        builder.setFilename(fileName)
-               .setVersion(version + 1)
-               .setBlocklist(hashList);
-        FileInfo req = builder.build();
+        FileInfo req = FileInfoUtils.toFileInfo(fileName, version + 1, hashList, false);
         WriteResult res = metadataStub.ModifyFile(req);
         return res;
     }
@@ -251,7 +242,7 @@ public final class Client {
             break;
             case MISSING_BLOCKS:
               logger.info("File missing blocks in block store, uploading blocks to block store");
-              uploadMissingBlockToBlockStore(fileName, missing_blks));
+              uploadMissingBlockToBlockStore(fileName, res.getBlocklistList()));
               return upload(fileName);
             break;
             default:
@@ -260,8 +251,9 @@ public final class Client {
             return upload(fileName);
           }
         }else{
-            logger.info("File not found on surfstore, create new file, and retry upload");
+            logger.info("File not found on surfstore, create new file, and upload");
             uploadMissingBlockToBlockStore(fileName, null);
+            WriteResult res = this.updateMetaStore(fileName, 1);
             return upload(fileName);
         }
     }

@@ -104,7 +104,7 @@ message FileInfo {
     int32 version = 2;
     repeated string blocklist = 3;
     //deleted = true : file already deleted; false, file exist or not created
-    optional bool deleted = 4;
+    bool deleted = 4;
 }
 
 message Block {

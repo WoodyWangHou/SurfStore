@@ -9,8 +9,36 @@ import com.google.protobuf.ByteString;
 import java.util.logging.Logger;
 
 import surfstore.SurfStoreBasic.Block;
+import surfstore.SurfStoreBasic.FileInfo;
+import surfstore.SurfStoreBasic.WriteResult;
 
 public final class Utils{
+    /**
+    * WriteResult utility class
+    **/
+    public static final class WriteResultUtils{
+      public static toWriteResult(Result res, int cur_ver, List<String> missingHashList){
+        WriteResult.builder builder = WriteResult.newBuilder();
+        builder.setResult(res)
+               .setCurentVersion(cur_ver)
+               .setBlocklistList(missingHashList);
+        return builder.build();
+      }
+    }
+
+    /**
+    * FileInfo utility class
+    **/
+    public static final class FileInfoUtils{
+      public static toFileInfo(String fileName, int ver, List<String> hashList, boolean isDeleted){
+        FileInfo.builder builder = FileInfo.newBuilder();
+        builder.setFilename(fileName)
+               .setVersion(ver)
+               .setBlocklistList(hashList)
+               .setDeleted(isDeleted);
+        return builder.build();
+      }
+    }
 
     /**
     * Hash utility class
@@ -44,24 +72,6 @@ public final class Utils{
             String encoded = Base64.getEncoder().encodeToString(hash);
 
             return encoded;
-        }
-    }
-
-    /**
-    * DataToBlock Utility class
-    **/
-    public static final class FileInfoUtils{
-        public static Block toFileInfo(String fileName, int ver, byte[] blocklist){
-          Block.Builder builder = Block.newBuilder();
-
-          try{
-            builder.setData(ByteString.copyFrom(s, "UTF-8"));
-          }catch (UnsupportedEncodingException e){
-            throw new RuntimeException(e);
-          }
-
-          builder.setHash(HashUtils.sha256(s));
-          return builder.build();
         }
     }
 
