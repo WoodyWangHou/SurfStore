@@ -9,6 +9,7 @@
 package surfstore;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.Path;
@@ -17,6 +18,8 @@ import java.nio.channels.FileChannel;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 import java.util.HashMap;
+import java.util.List;
+import java.util.ArrayList;
 
 import com.google.protobuf.ByteString;
 import io.grpc.ManagedChannel;
@@ -28,10 +31,11 @@ import net.sourceforge.argparse4j.inf.Namespace;
 import surfstore.SurfStoreBasic.Empty;
 import surfstore.SurfStoreBasic.Block;
 import surfstore.SurfStoreBasic.FileInfo;
+import surfstore.SurfStoreBasic.WriteResult;
 import surfstore.Utils.TestUtils;
 import surfstore.Utils.HashUtils;
 import surfstore.Utils.BlockUtils;
-import sutfstore.Utils.FileInfoUtils;
+import surfstore.Utils.FileInfoUtils;
 import surfstore.Configs;
 
 public final class Client {
@@ -84,8 +88,8 @@ public final class Client {
       // if missing is null, upload all blocks
       if(missing == null || missing.size() == 0){
         for(Block blk : blks){
-          blockStub.StoreBlock(blk);
-          ensure(blockStub.hasBlock(blk) == true, "blockstore stored failed"); // to be commented out
+          blockStub.storeBlock(blk);
+          TestUtils.ensure(blockStub.hasBlock(blk).getAnswer() == true, "blockstore stored failed"); // to be commented out
         }
         return;
       }
@@ -98,8 +102,8 @@ public final class Client {
       for(Block blk : blks){
         String hash = blk.getHash();
         if(miss_map.containsKey(hash)){
-          blockStub.StoreBlock(blk);
-          ensure(blockStub.hasBlock(blk) == true, "blockstore stored failed"); // to be commented out
+          blockStub.storeBlock(blk);
+          TestUtils.ensure(blockStub.hasBlock(blk).getAnswer() == true, "blockstore stored failed"); // to be commented out
         }
       }
 
@@ -108,7 +112,7 @@ public final class Client {
 
     /**
     * Check if file already exist in metastore.
-    * @param fileName the name of file
+    * @param fileName the name of fsile
     * @return current file on metastore version number
     **/
     private int getFileVersionMetaStore(String fileName){
@@ -138,34 +142,36 @@ public final class Client {
     * @return List<Block>
     **/
     private List<Block> getFileBlockList(String fileName){
-      Path inputPath = Path.get(fileName);
-      Path fulslPath = new Path();
+      Path inputPath = Paths.get(fileName);
+      Path fullPath = null;
       int version = 0;
+      FileChannel fc = null;
+      ByteBuffer buf = null;
       List<Block> res = new ArrayList<Block>();
       try{
           fullPath = inputPath.toRealPath();
       }catch(IOException e){
         // file not exist, return empty list
           logger.warning("File not found, I/O errors");
-          return (List<Block>) new ArrayList<Block>();
+          return null;
       }
 
       try{
-          FileChannel fc = (FileChannel)Files.newByteChannel(fullPath);
-          ByteBuffer buf = ByteBuffer.allocate(Configs.BLOCK_SIZE);
+          fc = (FileChannel)Files.newByteChannel(fullPath);
+          buf = ByteBuffer.allocate(Configs.BLOCK_SIZE);
           String encoding = System.getProperty("file.encoding");
+
+          while (fc.read(buf) > 0) {
+              buf.rewind();
+              byte[] data = buf.array();
+              Block bl = BlockUtils.bytesToBlock(data);
+              res.add(bl);
+              buf.flip();
+            }
         }catch(IOException e){
             logger.warning("caught IO exception: " + e.toString());
             e.printStackTrace();
-            return false;
-        }
-
-      while (fc.read(buf) > 0) {
-          buf.rewind();
-          byte[] data = buf.array();
-          Block bl = BlockUtils.bytesToBlock(data);
-          res.add(bl);
-          buf.flip();
+            return null;
         }
       return res;
     }
@@ -180,19 +186,8 @@ public final class Client {
     private WriteResult updateMetaStore(String fileName, int version){
         List<String> hashList = this.getFileHashList(fileName);
         FileInfo req = FileInfoUtils.toFileInfo(fileName, version + 1, hashList, false);
-        WriteResult res = metadataStub.ModifyFile(req);
+        WriteResult res = metadataStub.modifyFile(req);
         return res;
-    }
-
-    /**
-    * Reconfig Metastore, set client to connect to server specified by serverId
-    * @param serverId the number of metastore server
-    * @return void
-    **/
-    private void changeLeadMetaStore(int serverId){
-      this.metadataChannel = ManagedChannelBuilder.forAddress("127.0.0.1", config.getMetadataPort(serverId))
-              .usePlaintext(true).build();
-      this.metadataStub = MetadataStoreGrpc.newBlockingStub(metadataChannel);
     }
 
     /**
@@ -204,16 +199,10 @@ public final class Client {
     * @return boolean true if success, false if failed
     * @throws NoSuchFileException IOException RuntimeException
     **/
-
-    /**
-    * Upload the file specified by fileName to SurfStore
-    * @param fileName the local file name of the file to be uploaded
-    * @return true if upload succeed, false if file is not found or io error
-    **/
     private boolean upload(String fileName){
         // if local file exists and can be read, contact metastore to verify if file exists
-        Path inputPath = Path.get(fileName);
-        Path fulslPath = new Path();
+        Path inputPath = Paths.get(fileName);
+        Path fullPath = null;
         int version = 0;
         try{
             fullPath = inputPath.toRealPath();
@@ -234,20 +223,17 @@ public final class Client {
               // file already exist
               logger.info("File uploaded, OK");
               return true;
-            break;
             case OLD_VERSION:
               // retry upload until success
               logger.info("File version not correct,retry to upload");
               return upload(fileName);
-            break;
             case MISSING_BLOCKS:
               logger.info("File missing blocks in block store, uploading blocks to block store");
-              uploadMissingBlockToBlockStore(fileName, res.getBlocklistList()));
+              uploadMissingBlockToBlockStore(fileName, res.getMissingBlocksList());
               return upload(fileName);
-            break;
             default:
             // not LEADER, change leader metastore then retry
-            this.changeLeadMetaStore(config.getLeaderNum());
+            // TODO: to implement handling functionality
             return upload(fileName);
           }
         }else{

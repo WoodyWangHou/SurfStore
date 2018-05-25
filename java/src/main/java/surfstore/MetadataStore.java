@@ -5,21 +5,27 @@ import java.io.IOException;
 import java.util.concurrent.Executors;
 import java.util.logging.Logger;
 import java.util.HashMap;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.concurrent.Semaphore;
 
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
 import net.sourceforge.argparse4j.ArgumentParsers;
 import net.sourceforge.argparse4j.inf.ArgumentParser;
 import net.sourceforge.argparse4j.inf.ArgumentParserException;
 import net.sourceforge.argparse4j.inf.Namespace;
 import surfstore.SurfStoreBasic.Empty;
 import surfstore.SurfStoreBasic.FileInfo;
+import surfstore.SurfStoreBasic.Block;
 import surfstore.SurfStoreBasic.SimpleAnswer;
 import surfstore.SurfStoreBasic.WriteResult;
 import surfstore.Utils.FileInfoUtils;
-import suftstore.Utils.WriteResultUtils;
+import surfstore.Utils.BlockUtils;
+import surfstore.Utils.WriteResultUtils;
 
 public final class MetadataStore {
     private static final Logger logger = Logger.getLogger(MetadataStore.class.getName());
@@ -28,23 +34,16 @@ public final class MetadataStore {
     protected Server server;
 	  protected ConfigReader config;
 
-    protected HashMap<String, FileInfo> metadataStore;
-    protected final Semaphore readWrite = new Semaphore(1,true);
-    protected final Semaphore read = new Semaphore(1);
-    protected int read_count;
-
     public MetadataStore(ConfigReader config) {
       this.blockChannel = ManagedChannelBuilder.forAddress("127.0.0.1", config.getBlockPort())
               .usePlaintext(true).build();
       this.blockStub = BlockStoreGrpc.newBlockingStub(blockChannel);
     	this.config = config;
-      this.metadataStore = new ConcurrentHashMap<String, FileInfo>();
-      this.read_count = 0;
-	}
+	   }
 
 	private void start(int port, int numThreads) throws IOException {
         server = ServerBuilder.forPort(port)
-                .addService(new MetadataStoreImpl())
+                .addService(new MetadataStoreImpl(blockStub))
                 .executor(Executors.newFixedThreadPool(numThreads))
                 .build()
                 .start();
@@ -109,6 +108,19 @@ public final class MetadataStore {
     }
 
     static class MetadataStoreImpl extends MetadataStoreGrpc.MetadataStoreImplBase {
+        protected HashMap<String, FileInfo> metadataStore;
+        protected final BlockStoreGrpc.BlockStoreBlockingStub blockStub;
+        protected final Semaphore readWrite = new Semaphore(1,true);
+        protected final Semaphore read = new Semaphore(1);
+        protected int read_count;
+
+        public MetadataStoreImpl(BlockStoreGrpc.BlockStoreBlockingStub stub){
+            super();
+            this.metadataStore = new HashMap<String, FileInfo>();
+            this.read_count = 0;
+            this.blockStub = stub;
+        }
+
         @Override
         public void ping(Empty req, final StreamObserver<Empty> responseObserver) {
             Empty response = Empty.newBuilder().build();
@@ -132,10 +144,19 @@ public final class MetadataStore {
             String fileName = request.getFilename();
 
             // CRTICAL SECTION: read is concurrent, write is seralized with read
-            read.acquire();
+                try{
+                    read.acquire();
+                }catch(InterruptedException e){
+                  throw new RuntimeException(e);
+                }
                 read_count++;
-                if(read_count == 1)
-                    readWrite.acquire();
+                if(read_count == 1){
+                    try{
+                        readWrite.acquire();
+                    }catch(InterruptedException e){
+                      throw new RuntimeException(e);
+                    }
+                }
             read.release();
             FileInfo res = metadataStore.getOrDefault(fileName, null);
 
@@ -144,7 +165,11 @@ public final class MetadataStore {
                 res = FileInfoUtils.toFileInfo(fileName, 0, null, false);
             }
 
-            read.acquire();
+            try{
+                read.acquire();
+            }catch(InterruptedException e){
+              throw new RuntimeException(e);
+            }
                 read_count--;
                 if(read_count == 0)
                     readWrite.release();
@@ -168,7 +193,10 @@ public final class MetadataStore {
             List<String> missing = new ArrayList<String>();
             if(file != null){
                 // if file provided is valid
-                cur_hl = metadataStore.getOrDefault(file.getFilename(), null);
+                FileInfo fi = metadataStore.getOrDefault(file.getFilename(), null);
+                if(fi != null){
+                   cur_hl = fi.getBlocklistList();
+                }
             }
 
             if(cur_hl == null){
@@ -177,7 +205,8 @@ public final class MetadataStore {
             }else{
               // file exist
               for(String hash : hashList){
-                 if(!blockStub.hasBlock().getAnswer()){
+                 Block req = BlockUtils.hashToBlock(hash);
+                 if(!blockStub.hasBlock(req).getAnswer()){
                     missing.add(hash);
                  }
               }
@@ -213,8 +242,12 @@ public final class MetadataStore {
 
             // Modification of metaStore is critical:
             // CRITICAL SECTION:
-            readWrite.acquire();
-            FileInfo cur =  metadataStore.getOrDefault(filename, null);
+            try{
+                readWrite.acquire();
+            }catch(InterruptedException e){
+              throw new RuntimeException(e);
+            }
+            FileInfo cur =  metadataStore.getOrDefault(fileName, null);
             int cur_ver = (cur == null) ? 0 : cur.getVersion();
             // check if version is correct
             if(cur_ver + 1 == cli_ver){
@@ -224,19 +257,16 @@ public final class MetadataStore {
                 if(missing == null || missing.size() == 0){
                     // no missing block
                     // update block
-                    cur.setVersion(cli_ver);
-                       .setBlocklistList(hashList)
-                       .setDeleted(false);
-
-                    metadataStore.put(fileName, cur);
-                    res = WriteResultUtils.toWriteResult(OK, cur.getVersion(), null);
+                    FileInfo newFile = FileInfoUtils.toFileInfo(fileName, cli_ver, hashList, false);
+                    metadataStore.put(fileName, newFile);
+                    res = WriteResultUtils.toWriteResult(WriteResult.Result.OK, cur.getVersion(), null);
                 }else{
-                    res = WriteResultUtils.toWriteResult(MISSING_BLOCKS, cur_ver, missing);
+                    res = WriteResultUtils.toWriteResult(WriteResult.Result.MISSING_BLOCKS, cur_ver, missing);
                 }
 
             }else{
                 // version not correct
-                res = WriteResultUtils.toWriteResult(OLD_VERSION, cur_ver, null);
+                res = WriteResultUtils.toWriteResult(WriteResult.Result.OLD_VERSION, cur_ver, null);
             }
             readWrite.release();
             // end of Critical Section
@@ -259,21 +289,23 @@ public final class MetadataStore {
             WriteResult res = null;
 
             // Critical Section
-            readWrite.acquire();
+            try{
+                readWrite.acquire();
+            }catch(InterruptedException e){
+              throw new RuntimeException(e);
+            }
             FileInfo cur = metadataStore.getOrDefault(fileName, null);
             int cur_ver = (cur == null) ? 0 : cur.getVersion();
 
             if(cur_ver == 0){
-                res = WriteResultUtils.toWriteResult(OK, cur_ver, null);
+                res = WriteResultUtils.toWriteResult(WriteResult.Result.OK, cur_ver, null);
             }else{
-                if(cur.getVerion() + 1 == cli_ver){
-                    cur.setDeleted(true)
-                       .setVersion(cli_ver);
-
-                    metadataStore.put(fileName, cur);
-                    res = WriteResultUtils.toWriteResult(OK, cur.getVersion(), null);
+                if(cur.getVersion() + 1 == cli_ver){
+                    FileInfo newFile = FileInfoUtils.toFileInfo(fileName, cli_ver, cur.getBlocklistList(), true);
+                    metadataStore.put(fileName, newFile);
+                    res = WriteResultUtils.toWriteResult(WriteResult.Result.OK, cur.getVersion(), null);
                 }else{
-                    res = WriteResultUtils.toWriteResult(OLD_VERSION, cur_ver, null);
+                    res = WriteResultUtils.toWriteResult(WriteResult.Result.OLD_VERSION, cur_ver, null);
                 }
             }
             readWrite.release();
@@ -296,20 +328,32 @@ public final class MetadataStore {
             String fileName = request.getFilename();
 
             // Critical Section:
-            read.acquire();
-                read_count++;
-                if(read_count == 1)
+            try{
+                read.acquire();
+            }catch(InterruptedException e){
+              throw new RuntimeException(e);
+            }
+            read_count++;
+            if(read_count == 1){
+                try{
                     readWrite.acquire();
-            read.release();
+                }catch(InterruptedException e){
+                  throw new RuntimeException(e);
+                }
+            }
 
             FileInfo cur = metadataStore.getOrDefault(fileName, null);
             if(cur == null){
                 res = FileInfoUtils.toFileInfo(fileName, 0, null, false);
             }else{
-                res = cur
+                res = cur;
             }
 
-            read.acquire();
+            try{
+                read.acquire();
+            }catch(InterruptedException e){
+              throw new RuntimeException(e);
+            }
                 read_count--;
                 if(read_count == 0)
                     readWrite.release();

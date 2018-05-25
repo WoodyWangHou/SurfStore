@@ -7,21 +7,23 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import com.google.protobuf.ByteString;
 import java.util.logging.Logger;
+import java.util.List;
 
 import surfstore.SurfStoreBasic.Block;
 import surfstore.SurfStoreBasic.FileInfo;
 import surfstore.SurfStoreBasic.WriteResult;
+import surfstore.SurfStoreBasic.WriteResult.Result;
 
 public final class Utils{
     /**
     * WriteResult utility class
     **/
     public static final class WriteResultUtils{
-      public static toWriteResult(Result res, int cur_ver, List<String> missingHashList){
-        WriteResult.builder builder = WriteResult.newBuilder();
+      public static WriteResult toWriteResult(Result res, int cur_ver, List<String> missingHashList){
+        WriteResult.Builder builder = WriteResult.newBuilder();
         builder.setResult(res)
-               .setCurentVersion(cur_ver)
-               .setBlocklistList(missingHashList);
+               .setCurrentVersion(cur_ver)
+               .addAllMissingBlocks((Iterable<String>) missingHashList);
         return builder.build();
       }
     }
@@ -30,11 +32,11 @@ public final class Utils{
     * FileInfo utility class
     **/
     public static final class FileInfoUtils{
-      public static toFileInfo(String fileName, int ver, List<String> hashList, boolean isDeleted){
-        FileInfo.builder builder = FileInfo.newBuilder();
+      public static FileInfo toFileInfo(String fileName, int ver, List<String> hashList, boolean isDeleted){
+        FileInfo.Builder builder = FileInfo.newBuilder();
         builder.setFilename(fileName)
                .setVersion(ver)
-               .setBlocklistList(hashList)
+               .addAllBlocklist((Iterable<String>) hashList)
                .setDeleted(isDeleted);
         return builder.build();
       }
@@ -79,6 +81,17 @@ public final class Utils{
     * DataToBlock Utility class
     **/
     public static final class BlockUtils{
+        public static Block hashToBlock(String h){
+          Block.Builder builder = Block.newBuilder();
+          try{
+            builder.setHash(h)
+                   .setData(ByteString.copyFrom("","UTF-8"));
+          }catch(UnsupportedEncodingException e){
+            throw new RuntimeException(e);
+          }
+          return builder.build();
+        }
+
         public static Block stringToBlock(String s){
           Block.Builder builder = Block.newBuilder();
 
@@ -94,13 +107,7 @@ public final class Utils{
 
         public static Block bytesToBlock(byte[] b){
           Block.Builder builder = Block.newBuilder();
-
-          try{
-            builder.setData(ByteString.copyFrom(b, "UTF-8"));
-          }catch (UnsupportedEncodingException e){
-            throw new RuntimeException(e);
-          }
-
+          builder.setData(ByteString.copyFrom(b));
           builder.setHash(HashUtils.sha256(b));
           return builder.build();
         }

@@ -2,12 +2,14 @@ package surfstore;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.InterruptedException;
 import java.util.concurrent.Executors;
 import java.util.logging.Logger;
 import java.util.Map;
 import java.util.HashMap;
 
 import com.google.protobuf.ByteString;
+import com.google.common.annotations.VisibleForTesting;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
@@ -24,7 +26,7 @@ public final class BlockStore {
     private static final Logger logger = Logger.getLogger(BlockStore.class.getName());
 
     protected Server server;
-	protected ConfigReader config;
+	  protected ConfigReader config;
 
     public BlockStore(ConfigReader config) {
     	this.config = config;
@@ -144,5 +146,17 @@ public final class BlockStore {
             responseObserver.onNext(response);
             responseObserver.onCompleted();
         }
+    }
+
+    @VisibleForTesting
+    void buildAndRunBlockStore(ConfigReader config) throws IOException, InterruptedException{
+      final BlockStore server = new BlockStore(config);
+      server.start(config.getBlockPort(), 1);
+      server.blockUntilShutdown();
+    }
+
+    @VisibleForTesting
+    void forceStop(){
+        this.stop();
     }
 }
