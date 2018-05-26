@@ -1,4 +1,0 @@
-M: 1
-L: 1
-metadata1: 8392
-block: 7183

@@ -157,6 +157,8 @@ public final class BlockStore {
 
     @VisibleForTesting
     void forceStop(){
-        this.stop();
+        if(server != null){
+          server.shutdown();
+        }
     }
 }

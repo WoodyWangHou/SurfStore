@@ -8,6 +8,11 @@
 	<description>This is the SurfStore gRPC starter code</description>
 	<packaging>jar</packaging>
 
+	<properties>
+		<junit.jupiter.version>5.1.0</junit.jupiter.version>
+		<junit.platform.version>1.1.0</junit.platform.version>
+	</properties>
+
 	<dependencies>
 		<dependency>
 			<groupId>io.grpc</groupId>
@@ -40,14 +45,40 @@
 		  <artifactId>guava</artifactId>
 		  <version>25.1-jre</version>
 		</dependency>
+      <dependency>
+         <groupId>org.junit.jupiter</groupId>
+         <artifactId>junit-jupiter-api</artifactId>
+         <version>${junit.jupiter.version}</version>
+         <scope>test</scope>
+      </dependency>
+		 <dependency>
+		    <groupId>org.junit.jupiter</groupId>
+		    <artifactId>junit-jupiter-engine</artifactId>
+		    <version>${junit.jupiter.version}</version>
+		    <scope>test</scope>
+		</dependency>
 		<dependency>
-        <groupId>org.junit.jupiter</groupId>
-        <artifactId>junit-jupiter-api</artifactId>
-        <version>5.2.0</version>
-        <scope>test</scope>
-    </dependency>
+		    <groupId>org.junit.vintage</groupId>
+		    <artifactId>junit-vintage-engine</artifactId>
+		    <version>${junit.jupiter.version}</version>
+		    <scope>test</scope>
+		</dependency>
+		<dependency>
+		    <groupId>org.junit.platform</groupId>
+		    <artifactId>junit-platform-launcher</artifactId>
+		    <version>${junit.platform.version}</version>
+		    <scope>test</scope>
+		</dependency>
+		<dependency>
+		    <groupId>org.junit.platform</groupId>
+		    <artifactId>junit-platform-runner</artifactId>
+		    <version>${junit.platform.version}</version>
+		    <scope>test</scope>
+		</dependency>
 	</dependencies>
+
 	<build>
+
 		<extensions>
 			<extension>
 				<groupId>kr.motd.maven</groupId>
@@ -55,7 +86,19 @@
 				<version>1.5.0.Final</version>
 			</extension>
 		</extensions>
+
 		<plugins>
+
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<version>2.0.2</version>
+				<configuration>
+					<source>1.7</source>
+					<target>1.7</target>
+				</configuration>
+			</plugin>
+
 			<plugin>
 					<artifactId>maven-surefire-plugin</artifactId>
 					<version>2.21.0</version>
@@ -66,21 +109,13 @@
 									<version>1.2.0</version>
 							</dependency>
 							<dependency>
-								<groupId>org.junit.jupiter</groupId>
-								<artifactId>junit-jupiter-engine</artifactId>
-								<version>5.2.0</version>
-							</dependency>
+								 <groupId>org.junit.jupiter</groupId>
+								 <artifactId>junit-jupiter-engine</artifactId>
+								 <version>${junit.jupiter.version}</version>
+						 </dependency>
 					</dependencies>
 			</plugin>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-compiler-plugin</artifactId>
-				<version>2.0.2</version>
-				<configuration>
-					<source>1.7</source>
-					<target>1.7</target>
-				</configuration>
-			</plugin>
+
 			<plugin>
 				<groupId>org.xolstice.maven.plugins</groupId>
 				<artifactId>protobuf-maven-plugin</artifactId>
@@ -99,6 +134,7 @@
 					</execution>
 				</executions>
 			</plugin>
+
 			<plugin>
 				<groupId>org.codehaus.mojo</groupId>
 				<artifactId>appassembler-maven-plugin</artifactId>
@@ -132,6 +168,8 @@
 					</execution>
 				</executions>
 			</plugin>
+
 		</plugins>
+
 	</build>
 </project>

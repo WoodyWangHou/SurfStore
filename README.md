@@ -9,6 +9,11 @@ This is the starter code for the Java implementation of SurfStore.
 
 $ mvn protobuf:compile protobuf:compile-custom
 
+## To run unit test (JUnit 5)
+
+$ mvn test
+The test source files are located under $ /java/src/test/java
+
 ## To build the code:
 
 $ mvn package
