@@ -1,5 +1,11 @@
 package surfstore;
 
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.AfterAll;
+import static org.junit.jupiter.api.Assertions.*;
+
 import java.io.File;
 import java.util.logging.Logger;
 import java.io.UnsupportedEncodingException;
@@ -13,11 +19,12 @@ import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
-import surfstore.SurfStoreBasic.Block;
 
-import org.junit.jupiter.api.*;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import surfstore.SurfStoreBasic.Block;
+import surfstore.SurfStoreBasic.Empty;
+import surfstore.SurfStoreBasic.Block;
+import surfstore.Utils.*;
+
 
 public class BlockStoreTest{
   private static ManagedChannel blockChannel;
@@ -25,7 +32,7 @@ public class BlockStoreTest{
   private static final Logger logger = Logger.getLogger(BlockStoreTest.class.getName());
   private static BlockTestServer testServer;
 
-  private static class BlockTestServer extends Thread{
+  public static class BlockTestServer extends Thread{
       private static BlockStore blockStoreServer;
       private ConfigReader configr;
       // start test Block server
@@ -73,26 +80,57 @@ public class BlockStoreTest{
       }
   }
 
+  /**
+  * Add Test Cases Below
+  **/
+
   @Test
-  public void UtilsTest(){
-    logger.info("UtilTest completed........");
+  @DisplayName("TEST: Ping() RPC call")
+  public void pingTest(){
+      Empty req = Empty.newBuilder().build();
+      Empty res = blockStub.ping(req);
+      assertTrue(res.equals(req));
   }
 
   @Test
-  public void storeBlockTest(){
-      Block.Builder builder = Block.newBuilder();
-      Block req;
-      try{
-        builder.setHash("aaa")
-               .setData(ByteString.copyFrom("bbb", "UTF-8"));
-        req = builder.build();
-      }catch(UnsupportedEncodingException e){
-        logger.info("not support UTF-8");
-        return;
-      }
+  @DisplayName("TEST: getBlock() RPC call")
+  public void getBlockTest(){
+      String data = "aaa";
+      String hash = HashUtils.sha256(data);
+      String fake = "aab";
 
+      Block req = BlockUtils.stringToBlock(data);
+      Block fakeB = BlockUtils.stringToBlock(fake);
+
+      blockStub.storeBlock(req);
+
+      Block res = blockStub.getBlock(req);
+      assertNotNull(res);
+      assertEquals(hash, res.getHash());
+      assertTrue(req.equals(res));
+      assertFalse(req.equals(fakeB));
+  }
+
+  @Test
+  @DisplayName("TEST: storeBlock() RPC call")
+  public void storeBlockTest(){
+      String data = "bbb";
+      Block req = BlockUtils.stringToBlock(data);
       assertTrue(!blockStub.hasBlock(req).getAnswer());
       blockStub.storeBlock(req);
       assertTrue(blockStub.hasBlock(req).getAnswer());
+      Block res = blockStub.getBlock(req);
+      assertTrue(res.equals(req));
+  }
+
+  @Test
+  @DisplayName("TEST: hasBlock() RPC call")
+  public void hasBlockTest(){
+    String data = "ccc";
+    Block req = BlockUtils.stringToBlock(data);
+
+    assertTrue(!blockStub.hasBlock(req).getAnswer());
+    blockStub.storeBlock(req);
+    assertTrue(blockStub.hasBlock(req).getAnswer());
   }
 }

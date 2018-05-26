@@ -1,6 +1,7 @@
 #! /bin/bash
-CONFIG = ./configs
-CENTRALIZED = $CONFIG/configCentralized.txt
-DISTRIBUTED = $CONFIG/configDistributed.txt
+CONFIG=./configs
+CENTRALIZED=$CONFIG/configCentralized.txt
+DISTRIBUTED=$CONFIG/configDistributed.txt
 
-# running client 
+# running client
+./java/target/surfstore/bin/runMetadataStore $CENTRALIZED

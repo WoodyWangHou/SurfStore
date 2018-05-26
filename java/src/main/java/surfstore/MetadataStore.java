@@ -26,6 +26,7 @@ import surfstore.SurfStoreBasic.WriteResult;
 import surfstore.Utils.FileInfoUtils;
 import surfstore.Utils.BlockUtils;
 import surfstore.Utils.WriteResultUtils;
+import com.google.common.annotations.VisibleForTesting;
 
 public final class MetadataStore {
     private static final Logger logger = Logger.getLogger(MetadataStore.class.getName());
@@ -399,6 +400,20 @@ public final class MetadataStore {
         public void isCrashed(Empty request,StreamObserver<SimpleAnswer> responseObserver) {
 
         }
+    }
 
+    @VisibleForTesting
+    // config for centralized testing, need to modify for distributed version
+    void buildAndRunMetaStore(ConfigReader config) throws IOException, InterruptedException{
+      final MetadataStore server = new MetadataStore(config);
+      server.start(config.getMetadataPort(1), 1);
+      server.blockUntilShutdown();
+    }
+
+    @VisibleForTesting
+    void forceStop(){
+        if(server != null){
+          server.shutdown();
+        }
     }
 }

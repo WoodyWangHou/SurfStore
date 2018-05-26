@@ -37,6 +37,7 @@ import surfstore.Utils.HashUtils;
 import surfstore.Utils.BlockUtils;
 import surfstore.Utils.FileInfoUtils;
 import surfstore.Configs;
+import com.google.common.annotations.VisibleForTesting;
 
 public final class Client {
     // for client stub and server stub configuration
