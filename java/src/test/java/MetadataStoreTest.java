@@ -25,8 +25,10 @@ import io.grpc.ManagedChannelBuilder;
 import surfstore.SurfStoreBasic.Block;
 import surfstore.SurfStoreBasic.Empty;
 import surfstore.SurfStoreBasic.FileInfo;
+import surfstore.SurfStoreBasic.WriteResult;
 import surfstore.BlockStoreTest.BlockTestServer;
 import surfstore.Utils.*;
+import surfstore.Client;
 
 public class MetadataStoreTest{
   private static final String testFolder = "../testfiles";
@@ -112,8 +114,7 @@ public class MetadataStoreTest{
 
   @Test
   public void ReadNotExistFile(){
-      List<String> temp = new ArrayList<String>();
-      FileInfo req = FileInfoUtils.toFileInfo(testFolder+"test.txt", 1, temp, false);
+      FileInfo req = FileInfoUtils.toFileInfo(testFolder+"test.txt", 1, null, false);
       FileInfo res = metadataStub.readFile(req);
 
       assertNotNull(res);
@@ -124,13 +125,23 @@ public class MetadataStoreTest{
 
   @Test
   public void createNewFile(){
-
-      FileInfo req = FileInfoUtils.toFileInfo(testFolder+"test.txt", 1, temp, false);
+      String fileName = testFolder + "/test.t";
+      List<String> fileBlks = Client.getFileHashListForTest(fileName);
+      // retest reading non existing file
+      FileInfo req = FileInfoUtils.toFileInfo("test.txt", 1, null, false);
       FileInfo res = metadataStub.readFile(req);
 
       assertNotNull(res);
       assertTrue(res.getVersion() == 0);
-      assertNull(res.getBlocklist());
+      assertTrue(res.getBlocklistList().size() == 0);
       assertTrue(!res.getDeleted());
+      // upload new file
+      req = FileInfoUtils.toFileInfo("test.t", 1, fileBlks, false);
+      WriteResult writeRes = metadataStub.modifyFile(req);
+
+      assertNotNull(writeRes);
+      assertTrue(writeRes.getCurrentVersion() == 1, "Returned version should be 1");
+      assertEquals(writeRes.getMissingBlocksList().size(), 0, "Returned missing list should be empty");
+      assertEquals(writeRes.getResult(), WriteResult.Result.OK);
   }
 }

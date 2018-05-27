@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.ArrayList;
 
 import com.google.protobuf.ByteString;
+import com.google.common.annotations.VisibleForTesting;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import net.sourceforge.argparse4j.ArgumentParsers;
@@ -84,7 +85,7 @@ public final class Client {
     **/
 
     private void uploadMissingBlockToBlockStore(String fileName, List<String> missing){
-      List<Block> blks = this.getFileBlockList(fileName);
+      List<Block> blks = getFileBlockList(fileName);
       HashMap<String, Integer> miss_map = new HashMap<String, Integer>();
       // if missing is null, upload all blocks
       if(missing == null || missing.size() == 0){
@@ -127,8 +128,15 @@ public final class Client {
     * @param fileName the name of file
     * @return hash list of the file
     **/
-    private List<String> getFileHashList(String fileName){
-        List<Block> block_list = this.getFileBlockList(fileName);
+
+    @VisibleForTesting
+    // wrapper for testing
+    public static List<String> getFileHashListForTest(String fileName){
+      return getFileHashList(fileName);
+    }
+
+    private static List<String> getFileHashList(String fileName){
+        List<Block> block_list = getFileBlockList(fileName);
         List<String> res = new ArrayList<String>();
         for(Block blk : block_list){
           res.add(blk.getHash());
@@ -142,7 +150,14 @@ public final class Client {
     * @param fileName the name of file
     * @return List<Block>
     **/
-    private List<Block> getFileBlockList(String fileName){
+
+    @VisibleForTesting
+    // wrapper for testing
+    public static List<Block> getFileBlockListForTest(String fileName){
+      return getFileBlockList(fileName);
+    }
+
+    private static List<Block> getFileBlockList(String fileName){
       Path inputPath = Paths.get(fileName);
       Path fullPath = null;
       int version = 0;
@@ -185,7 +200,7 @@ public final class Client {
     **/
 
     private WriteResult updateMetaStore(String fileName, int version){
-        List<String> hashList = this.getFileHashList(fileName);
+        List<String> hashList = getFileHashList(fileName);
         FileInfo req = FileInfoUtils.toFileInfo(fileName, version + 1, hashList, false);
         WriteResult res = metadataStub.modifyFile(req);
         return res;

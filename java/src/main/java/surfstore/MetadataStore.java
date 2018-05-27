@@ -260,7 +260,7 @@ public final class MetadataStore {
                     // update block
                     FileInfo newFile = FileInfoUtils.toFileInfo(fileName, cli_ver, hashList, false);
                     metadataStore.put(fileName, newFile);
-                    res = WriteResultUtils.toWriteResult(WriteResult.Result.OK, cur.getVersion(), null);
+                    res = WriteResultUtils.toWriteResult(WriteResult.Result.OK, cli_ver, null);
                 }else{
                     res = WriteResultUtils.toWriteResult(WriteResult.Result.MISSING_BLOCKS, cur_ver, missing);
                 }
