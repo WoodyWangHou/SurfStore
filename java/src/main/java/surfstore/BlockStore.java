@@ -101,6 +101,14 @@ public final class BlockStore {
         }
 
         @Override
+        public void resetStore(Empty req, final StreamObserver<Empty> responseObserver) {
+            Empty response = Empty.newBuilder().build();
+            this.blockMap.clear();
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+        }
+
+        @Override
         public void ping(Empty req, final StreamObserver<Empty> responseObserver) {
             Empty response = Empty.newBuilder().build();
             responseObserver.onNext(response);
@@ -109,8 +117,7 @@ public final class BlockStore {
 
         // TODO: Implement the other RPCs!
         @Override
-        public void storeBlock(surfstore.SurfStoreBasic.Block request,
-            io.grpc.stub.StreamObserver<surfstore.SurfStoreBasic.Empty> responseObserver) {
+        public void storeBlock(Block request,StreamObserver<Empty> responseObserver) {
             logger.info("Storing block with hash " + request.getHash());
             blockMap.put(request.getHash(), request.getData().toByteArray());
 
@@ -120,8 +127,7 @@ public final class BlockStore {
         }
 
         @Override
-        public void getBlock(surfstore.SurfStoreBasic.Block request,
-            io.grpc.stub.StreamObserver<surfstore.SurfStoreBasic.Block> responseObserver) {
+        public void getBlock(Block request, StreamObserver<Block> responseObserver) {
             logger.info("Getting block with hash " + request.getHash());
             byte[] data = blockMap.get(request.getHash());
 
@@ -135,8 +141,7 @@ public final class BlockStore {
         }
 
         @Override
-        public void hasBlock(surfstore.SurfStoreBasic.Block request,
-            io.grpc.stub.StreamObserver<surfstore.SurfStoreBasic.SimpleAnswer> responseObserver) {
+        public void hasBlock(Block request, StreamObserver<SimpleAnswer> responseObserver) {
             logger.info("Testing block with hash " + request.getHash());
             boolean answer = blockMap.containsKey(request.getHash());
             SimpleAnswer.Builder builder = SimpleAnswer.newBuilder();

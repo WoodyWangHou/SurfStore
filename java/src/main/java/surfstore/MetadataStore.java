@@ -123,6 +123,14 @@ public final class MetadataStore {
         }
 
         @Override
+        public void resetStore(Empty req, final StreamObserver<Empty> responseObserver) {
+            Empty response = Empty.newBuilder().build();
+            this.metadataStore.clear();
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+        }
+
+        @Override
         public void ping(Empty req, final StreamObserver<Empty> responseObserver) {
             Empty response = Empty.newBuilder().build();
             responseObserver.onNext(response);
@@ -182,35 +190,24 @@ public final class MetadataStore {
         }
 
         /**
-        * get missing blocks by checking with blockstore
+        * get missing blocks by checking with blockstore given the list of current hashes
         * if file is null, assume file not yet stored in metastore, return provided hashlist
         * This methods has to be synchronized!
-        * @param file metadata, hash list provided by client
+        * @param file metadata
+        * @return missing hash list
         **/
 
-        private List<String> getMissingBlocks(FileInfo file, List<String> hashList){
+        private List<String> getMissingBlocks(FileInfo file){
             // if file does not exists
-            List<String> cur_hl = null;
+            List<String> hashList = file.getBlocklistList();
             List<String> missing = new ArrayList<String>();
-            if(file != null){
-                // if file provided is valid
-                FileInfo fi = metadataStore.getOrDefault(file.getFilename(), null);
-                if(fi != null){
-                   cur_hl = fi.getBlocklistList();
-                }
-            }
 
-            if(cur_hl == null){
-              // file not exist
-              return hashList;
-            }else{
-              // file exist
-              for(String hash : hashList){
-                 Block req = BlockUtils.hashToBlock(hash);
-                 if(!blockStub.hasBlock(req).getAnswer()){
-                    missing.add(hash);
-                 }
-              }
+            // file exist
+            for(String hash : hashList){
+                Block req = BlockUtils.hashToBlock(hash);
+                if(!blockStub.hasBlock(req).getAnswer()){
+                  missing.add(hash);
+                }
             }
 
             return missing;
@@ -253,12 +250,11 @@ public final class MetadataStore {
             // check if version is correct
             if(cur_ver + 1 == cli_ver){
                 // version correct
-                List<String> hashList = request.getBlocklistList();
-                List<String> missing = this.getMissingBlocks(cur, hashList);
+                List<String> missing = this.getMissingBlocks(request);
                 if(missing == null || missing.size() == 0){
                     // no missing block
                     // update block
-                    FileInfo newFile = FileInfoUtils.toFileInfo(fileName, cli_ver, hashList, false);
+                    FileInfo newFile = FileInfoUtils.toFileInfo(fileName, cli_ver, request.getBlocklistList(), false);
                     metadataStore.put(fileName, newFile);
                     res = WriteResultUtils.toWriteResult(WriteResult.Result.OK, cli_ver, null);
                 }else{
@@ -295,20 +291,23 @@ public final class MetadataStore {
             }catch(InterruptedException e){
               throw new RuntimeException(e);
             }
+
             FileInfo cur = metadataStore.getOrDefault(fileName, null);
             int cur_ver = (cur == null) ? 0 : cur.getVersion();
 
             if(cur_ver == 0){
+                // file not created
                 res = WriteResultUtils.toWriteResult(WriteResult.Result.OK, cur_ver, null);
             }else{
                 if(cur.getVersion() + 1 == cli_ver){
                     FileInfo newFile = FileInfoUtils.toFileInfo(fileName, cli_ver, cur.getBlocklistList(), true);
                     metadataStore.put(fileName, newFile);
-                    res = WriteResultUtils.toWriteResult(WriteResult.Result.OK, cur.getVersion(), null);
+                    res = WriteResultUtils.toWriteResult(WriteResult.Result.OK, cli_ver, null);
                 }else{
                     res = WriteResultUtils.toWriteResult(WriteResult.Result.OLD_VERSION, cur_ver, null);
                 }
             }
+
             readWrite.release();
             // end of Critical Section
             responseObserver.onNext(res);
@@ -342,6 +341,7 @@ public final class MetadataStore {
                   throw new RuntimeException(e);
                 }
             }
+            read.release();
 
             FileInfo cur = metadataStore.getOrDefault(fileName, null);
             if(cur == null){

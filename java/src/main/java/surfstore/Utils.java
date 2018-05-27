@@ -23,8 +23,15 @@ public final class Utils{
       public static WriteResult toWriteResult(Result res, int cur_ver, List<String> missingHashList){
         WriteResult.Builder builder = WriteResult.newBuilder();
         builder.setResult(res)
-               .setCurrentVersion(cur_ver)
-               .addAllMissingBlocks((Iterable<String>) missingHashList);
+               .setCurrentVersion(cur_ver);
+               
+        if(missingHashList == null){
+            missingHashList = new ArrayList<String>();
+            builder.addAllMissingBlocks((Iterable<String>) missingHashList);
+        }else{
+            builder.addAllMissingBlocks((Iterable<String>) missingHashList);
+        }
+
         return builder.build();
       }
     }

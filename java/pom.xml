@@ -102,6 +102,7 @@
 			<plugin>
 					<artifactId>maven-surefire-plugin</artifactId>
 					<version>2.21.0</version>
+					<configuration>alphabetical</configuration>
 					<dependencies>
 							<dependency>
 									<groupId>org.junit.platform</groupId>

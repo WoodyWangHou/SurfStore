@@ -11,9 +11,9 @@ $ mvn protobuf:compile protobuf:compile-custom
 
 ## To run unit test (JUnit 5)
 
-$ mvn test
-The test source files are located under $ /java/src/test/java
-Please put all your test files under this folder
+- mvn test
+The test source files are located under "/java/src/test/java"
+- Please put all your test files under this folder
 You may duplicate the test framework. To test server, need to start a Server
 Thread and call RPC to this test server.
 
