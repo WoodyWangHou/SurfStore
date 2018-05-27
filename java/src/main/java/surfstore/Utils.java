@@ -8,6 +8,7 @@ import java.util.Base64;
 import com.google.protobuf.ByteString;
 import java.util.logging.Logger;
 import java.util.List;
+import java.util.ArrayList;
 
 import surfstore.SurfStoreBasic.Block;
 import surfstore.SurfStoreBasic.FileInfo;
@@ -36,8 +37,15 @@ public final class Utils{
         FileInfo.Builder builder = FileInfo.newBuilder();
         builder.setFilename(fileName)
                .setVersion(ver)
-               .addAllBlocklist((Iterable<String>) hashList)
                .setDeleted(isDeleted);
+
+        if(hashList == null){
+          List<String> temp = new ArrayList<String>();
+          builder.addAllBlocklist((Iterable<String>) temp);
+        }else{
+          builder.addAllBlocklist((Iterable<String>) hashList);
+        }
+
         return builder.build();
       }
     }

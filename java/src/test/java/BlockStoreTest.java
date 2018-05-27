@@ -22,7 +22,6 @@ import io.grpc.ManagedChannelBuilder;
 
 import surfstore.SurfStoreBasic.Block;
 import surfstore.SurfStoreBasic.Empty;
-import surfstore.SurfStoreBasic.Block;
 import surfstore.Utils.*;
 
 
@@ -63,6 +62,7 @@ public class BlockStoreTest{
     File configf = new File(configs);
     ConfigReader config = new ConfigReader(configf);
 
+    logger.info("============================= Blockstore Test start===============================");
     testServer = new BlockTestServer(config);
     testServer.start();
     blockChannel = ManagedChannelBuilder.forAddress("127.0.0.1", config.getBlockPort())

@@ -8,6 +8,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.File;
 import java.util.logging.Logger;
+import java.util.ArrayList;
+import java.util.List;
 import java.io.UnsupportedEncodingException;
 import java.lang.RuntimeException;
 import java.lang.Exception;
@@ -22,11 +24,12 @@ import io.grpc.ManagedChannelBuilder;
 
 import surfstore.SurfStoreBasic.Block;
 import surfstore.SurfStoreBasic.Empty;
-import surfstore.SurfStoreBasic.Block;
+import surfstore.SurfStoreBasic.FileInfo;
 import surfstore.BlockStoreTest.BlockTestServer;
 import surfstore.Utils.*;
 
 public class MetadataStoreTest{
+  private static final String testFolder = "../testfiles";
   private static ManagedChannel metadataChannel;
   private static MetadataStoreGrpc.MetadataStoreBlockingStub metadataStub;
   private static final Logger logger = Logger.getLogger(MetadataStoreTest.class.getName());
@@ -105,5 +108,29 @@ public class MetadataStoreTest{
 
       assertNotNull(metaRes);
       assertTrue(metaRes.equals(req));
+  }
+
+  @Test
+  public void ReadNotExistFile(){
+      List<String> temp = new ArrayList<String>();
+      FileInfo req = FileInfoUtils.toFileInfo(testFolder+"test.txt", 1, temp, false);
+      FileInfo res = metadataStub.readFile(req);
+
+      assertNotNull(res);
+      assertTrue(res.getVersion() == 0);
+      assertTrue(res.getBlocklistList().size() == 0);
+      assertTrue(!res.getDeleted());
+  }
+
+  @Test
+  public void createNewFile(){
+
+      FileInfo req = FileInfoUtils.toFileInfo(testFolder+"test.txt", 1, temp, false);
+      FileInfo res = metadataStub.readFile(req);
+
+      assertNotNull(res);
+      assertTrue(res.getVersion() == 0);
+      assertNull(res.getBlocklist());
+      assertTrue(!res.getDeleted());
   }
 }
