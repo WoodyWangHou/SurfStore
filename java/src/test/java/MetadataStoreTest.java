@@ -11,6 +11,9 @@ import java.util.logging.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.HashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
+
 import java.io.UnsupportedEncodingException;
 import java.lang.RuntimeException;
 import java.lang.Exception;
@@ -43,6 +46,7 @@ public class MetadataStoreTest{
   private static final Logger logger = Logger.getLogger(MetadataStoreTest.class.getName());
   private static MetadataTestServer testServer;
   private static BlockTestServer blockServer;
+  private int concurrentTestFlag = 0;
 
   public static class MetadataTestServer extends Thread{
       private static MetadataStore metadataStoreServer;
@@ -79,7 +83,7 @@ public class MetadataStoreTest{
   }
 
   // Test file upload helper
-  private static void upload(String fileName){
+  private static void upload(){
       for(Block blk : fileBlks){
         blockStub.storeBlock(blk);
       }
@@ -214,7 +218,7 @@ public class MetadataStoreTest{
         hash.put(str, 1);
       }
       // up load blocks
-      upload(testFile);
+      upload();
 
       // re-modify file
       FileInfo req = FileInfoUtils.toFileInfo(testFile, 1, fileHashs, false);
@@ -235,7 +239,7 @@ public class MetadataStoreTest{
       assertEquals(res.getVersion(), 0);
 
       // upload new file
-      upload(testFile);
+      upload();
       req = FileInfoUtils.toFileInfo(testFile, 1, fileHashs, false);
       WriteResult writeRes = metadataStub.modifyFile(req);
 
@@ -259,7 +263,7 @@ public class MetadataStoreTest{
   @Test
   public void deleteFileTest(){
       reset();
-      upload(testFile);
+      upload();
 
       // Write file to metadata
       FileInfo req = FileInfoUtils.toFileInfo(testFile, 1, fileHashs, false);
@@ -284,8 +288,32 @@ public class MetadataStoreTest{
       assertTrue(!res.getDeleted());
   }
 
-  // @Test
-  // public void concurrentTest(){
-  //
-  // }
+  @Test
+  public void concurrentTest(){
+      reset();
+      upload();
+
+      for(int i = 1; i <= 10; i++){
+         final FileInfo req = FileInfoUtils.toFileInfo(testFile, 1, fileHashs, false);
+         int count = 0;
+         Thread worker = new Thread(new Runnable(){
+            @Override
+            public void run(){
+              WriteResult res = metadataStub.modifyFile(req);
+              if(res.getResult() == WriteResult.Result.OK){
+                concurrentTestFlag++;
+                assertEquals(res.getResult(), WriteResult.Result.OK);
+              }else{
+                assertEquals(res.getResult(), WriteResult.Result.OLD_VERSION);
+              }
+
+              return;
+            }
+         });
+
+         worker.start();
+      }
+
+      assertEquals(concurrentTestFlag, 1);
+  }
 }
