@@ -256,7 +256,7 @@ public final class Client {
             logger.info("File not found on surfstore, create new file, and upload");
             uploadMissingBlockToBlockStore(fileName, null);
             WriteResult res = this.updateMetaStore(fileName, 1);
-            return upload(fileName);
+            return upload(fileName, localPath);
         }
     }
 
@@ -283,8 +283,9 @@ public final class Client {
     * @return true if download succeed; false if download failed
     */
     private boolean download(String fileName, String dest){
-        FileInfo req = FileInfo req = FileInfoUtils.toFileInfo(fileName, 0, null, false);
-
+        // TODO: to be done
+        FileInfo req = FileInfoUtils.toFileInfo(fileName, 0, null, false);
+        return true;
     }
     /**
     * This is the internal method that stores server logic
