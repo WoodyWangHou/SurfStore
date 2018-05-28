@@ -62,7 +62,6 @@ public final class Client {
         this.blockStub = BlockStoreGrpc.newBlockingStub(blockChannel);
 
         this.config = config;
-        // this.clientMetaStore = new HashMap<String, FileInfo>();
     }
 
     public void shutdown() throws InterruptedException {
@@ -79,7 +78,7 @@ public final class Client {
 
     /**
     * upload file to blockstore with missing blocks specified
-    * @param fileName file to be uploaded
+    * @param fileName local file to be uploaded
     * @param missing list of blocks missing in blockstore; if missing is null, upload all file; if missing is empty, abort
     * @return void
     **/
@@ -211,13 +210,14 @@ public final class Client {
     * Client needs to upload blocks to BlockStore first before signaling metastore to create
     * a file, then metastore increment file version + 1 if success, otherwise return error
     * Dependent Method: uploadToBlockStore, isFileExist, getMissingBlk
-    * @param fileName file name of the file to be uploaded
+    * @param fileName remote file name of the file to be uploaded
+    * @param localPath local file path
     * @return boolean true if success, false if failed
     * @throws NoSuchFileException IOException RuntimeException
     **/
-    private boolean upload(String fileName){
+    private boolean upload(String fileName, String localPath){
         // if local file exists and can be read, contact metastore to verify if file exists
-        Path inputPath = Paths.get(fileName);
+        Path inputPath = Paths.get(localPath);
         Path fullPath = null;
         int version = 0;
         try{
@@ -242,15 +242,15 @@ public final class Client {
             case OLD_VERSION:
               // retry upload until success
               logger.info("File version not correct,retry to upload");
-              return upload(fileName);
+              return upload(fileName, localPath);
             case MISSING_BLOCKS:
               logger.info("File missing blocks in block store, uploading blocks to block store");
               uploadMissingBlockToBlockStore(fileName, res.getMissingBlocksList());
-              return upload(fileName);
+              return upload(fileName, localPath);
             default:
             // not LEADER, change leader metastore then retry
             // TODO: to implement handling functionality
-            return upload(fileName);
+            return upload(fileName, localPath);
           }
         }else{
             logger.info("File not found on surfstore, create new file, and upload");
@@ -260,6 +260,32 @@ public final class Client {
         }
     }
 
+    /**
+    * getVersion(fileName) is the method for reading versions of a file from surfstore
+    * it will read one version if centralized
+    * return three versions if distributed
+    * @param fileName
+    * @return list of versions
+    **/
+    private List<Integer> getVersion(String fileName){
+        List<Integer> result = new ArrayList<Integer>();
+        FileInfo req = FileInfoUtils.toFileInfo(fileName, 0, null, false);
+        // we may need to modify the code here to query the leader stub
+        FileInfo res = metadataStub.getVersion(req);
+        result.add(res.getVersion());
+        return result;
+    }
+
+    /**
+    * download(fileName) is the method for downloading a file from surfstore
+    * it will contact leader node to download if distributed
+    * @param FileName
+    * @return true if download succeed; false if download failed
+    */
+    private boolean download(String fileName, String dest){
+        FileInfo req = FileInfo req = FileInfoUtils.toFileInfo(fileName, 0, null, false);
+
+    }
     /**
     * This is the internal method that stores server logic
     * @param void
