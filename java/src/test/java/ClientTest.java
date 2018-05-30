@@ -129,6 +129,13 @@ public class ClientTest{
       }
   }
 
+  private static void callClient(String arg){
+      String[] args = arg.split(" ");
+      Namespace c_args = Client.parseArgsForTest(args);
+      client.serveForTest(c_args);
+  }
+
+
   /**
   * Add Test Cases Below
   **/
@@ -171,9 +178,7 @@ public class ClientTest{
   public void getNotExistFileVersion(){
       reset();
       String arg = "../configs/configCentralized.txt getversion mytest.pdf";
-      String[] args = arg.split(" ");
-      Namespace c_args = Client.parseArgsForTest(args);
-      client.serveForTest(c_args);
+      callClient(arg);
 
       assertEquals("0", outContent.toString());
   }
@@ -182,9 +187,7 @@ public class ClientTest{
   public void deleteNotExistFile(){
       reset();
       String arg = "../configs/configCentralized.txt delete mytest.pdf";
-      String[] args = arg.split(" ");
-      Namespace c_args = Client.parseArgsForTest(args);
-      client.serveForTest(c_args);
+      callClient(arg);
 
       assertEquals(Configs.NOTFOUND, outContent.toString());
   }
@@ -194,9 +197,7 @@ public class ClientTest{
       reset();
 
       String arg = "../configs/configCentralized.txt download mytest.pdf /home/aturing/downloads";
-      String[] args = arg.split(" ");
-      Namespace c_args = Client.parseArgsForTest(args);
-      client.serveForTest(c_args);
+      callClient(arg);
 
       assertEquals(Configs.NOTFOUND, outContent.toString());
   }
@@ -206,22 +207,84 @@ public class ClientTest{
       reset();
 
       String arg = "../configs/configCentralized.txt upload /home/aturing/mytest.pdf";
-      String[] args = arg.split(" ");
-      Namespace c_args = Client.parseArgsForTest(args);
-      client.serveForTest(c_args);
+      callClient(arg);
 
       assertEquals(Configs.OK, outContent.toString());
+      FileInfo req = FileInfoUtils.toFileInfo("mytest.pdf", 0, null, false);
+      FileInfo res = metadataStub.readFile(req);
+      assertEquals(1, res.getVersion());
+      assertTrue(res.getBlocklistList().size() > 0);
   }
 
-  // @Test
-  // public void uploadFile(){
-  //     reset();
-  //
-  //     String arg = "client ../configs/configCentralized.txt upload /home/aturing/myfile.txt";
-  //     String[] args = arg.split(" ");
-  //     Namespace c_args = Client.Client.parseArgsForTestForTest(args);
-  //     client.serve(c_args);
-  //
-  //     assertEquals(Configs.OK, outContent.toString());
-  // }
+  @Test
+  public void downloadExistFile(){
+      reset();
+      String arg = "../configs/configCentralized.txt upload /home/aturing/mytest.pdf";
+      callClient(arg);
+
+      assertEquals(Configs.OK, outContent.toString());
+      outContent.reset();
+      arg = "../configs/configCentralized.txt download mytest.pdf /home/aturing/downloads";
+      callClient(arg);
+
+      assertEquals(Configs.OK, outContent.toString());
+      assertTrue(Files.exists(Paths.get("/home/aturing/downloads/mytest.pdf")));
+  }
+
+  @Test
+  public void uploadAndGetVersion(){
+      reset();
+
+      String arg = "../configs/configCentralized.txt upload /home/aturing/mytest.pdf";
+      callClient(arg);
+
+      outContent.reset();
+      arg = "../configs/configCentralized.txt getversion mytest.pdf";
+      callClient(arg);
+
+      assertEquals("1", outContent.toString());
+
+      // Second upload
+      arg = "../configs/configCentralized.txt upload /home/aturing/mytest.pdf";
+      callClient(arg);
+
+      outContent.reset();
+      arg = "../configs/configCentralized.txt getversion mytest.pdf";
+      callClient(arg);
+
+      assertEquals("2", outContent.toString());
+
+      // Second upload
+      arg = "../configs/configCentralized.txt delete mytest.pdf";
+      callClient(arg);
+
+      outContent.reset();
+      arg = "../configs/configCentralized.txt getversion mytest.pdf";
+      callClient(arg);
+
+      assertEquals("3", outContent.toString());
+
+  }
+
+  @Test
+  public void downloadDeleted(){
+      String arg = "../configs/configCentralized.txt upload /home/aturing/mytest.pdf";
+      callClient(arg);
+
+      // Second upload
+      arg = "../configs/configCentralized.txt delete mytest.pdf";
+      callClient(arg);
+
+      outContent.reset();
+      arg = "../configs/configCentralized.txt getversion mytest.pdf";
+      callClient(arg);
+
+      assertEquals("2", outContent.toString());
+
+      outContent.reset();
+      arg = "../configs/configCentralized.txt download mytest.pdf /home/aturing/downloads";
+      callClient(arg);
+
+      assertEquals(Configs.NOTFOUND, outContent.toString());
+  }
 }

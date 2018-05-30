@@ -15,11 +15,15 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.Path;
 import java.nio.file.NoSuchFileException;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 import java.util.Set;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.ArrayList;
@@ -163,7 +167,6 @@ public final class Client {
           String encoding = System.getProperty("file.encoding");
 
           while (fc.read(buf) > 0) {
-              buf.rewind();
               byte[] data = buf.array();
               Block bl = BlockUtils.bytesToBlock(data);
               res.add(bl);
@@ -263,11 +266,22 @@ public final class Client {
     */
     private Path createFile(String fileName, String destFolder){
         Path res = Paths.get(destFolder + "/" + fileName);
+        HashSet<PosixFilePermission> permissiongSet = new HashSet<>();
+        permissiongSet.add(PosixFilePermission.OTHERS_WRITE);
+        permissiongSet.add(PosixFilePermission.OTHERS_READ);
+        permissiongSet.add(PosixFilePermission.OWNER_WRITE);
+        permissiongSet.add(PosixFilePermission.OWNER_READ);
+
         try{
-            Files.createDirectories(Paths.get(destFolder));
-            res = Files.createFile(res);
-        }catch(Exception e){
-          logger.info("file already exist");
+            Files.createDirectories(Paths.get(destFolder), PosixFilePermissions.asFileAttribute(permissiongSet));
+            res = Files.createFile(res, PosixFilePermissions.asFileAttribute(permissiongSet));
+        }catch(FileAlreadyExistsException  e){
+          logger.info("file already exist " + e.toString());
+          e.printStackTrace();
+          return null;
+        }catch(IOException e){
+          logger.info("permission denied");
+          e.printStackTrace();
           return null;
         }
 
@@ -338,20 +352,16 @@ public final class Client {
             throw new NoSuchFileException("file cannot be found");
         }
         String fileName = fullPath.getFileName().toString();
-
         version = getFileVersionMetaStore(fileName);
         WriteResult res = updateMetaStore(fullPath, version + 1);
         switch(res.getResult()){
           case OK:
             // file already exist
-            logger.info("File uploaded, OK");
             return true;
           case OLD_VERSION:
             // retry upload until success
-            logger.info("File version not correct,retry to upload");
             return upload(localPath);
           case MISSING_BLOCKS:
-            logger.info("File missing blocks in block store, uploading blocks to block store");
             uploadMissingBlockToBlockStore(fullPath, res.getMissingBlocksList());
             return upload(localPath);
           default:
@@ -435,13 +445,14 @@ public final class Client {
         FileInfo res = metadataStub.readFile(req);
 
         // file deleted
-        if(res.getDeleted() || res.getVersion() == 0){
+        if(res.getVersion() == 0 || res.getDeleted()){
             throw new NoSuchFileException("No such file remotely");
         }
 
         List<String> curHashList = res.getBlocklistList();
         local_missing = getLocalMissingHashList(localFilePath, curHashList);
         List<Block> missing_downloaded = downloadBlocks(local_missing);
+        logger.info(String.valueOf(missing_downloaded.size()));
         modifyLocalFileToRemote(localFilePath, missing_downloaded, curHashList);
     }
 
@@ -455,7 +466,6 @@ public final class Client {
 
     private void serve(Namespace args){
         String cmd = args.getString("command");
-        logger.info("Command: " + cmd);
         String fileName = "";
         switch(cmd){
           case Configs.UPLOAD:
@@ -474,7 +484,6 @@ public final class Client {
           case Configs.DOWNLOAD:
             fileName = args.getString("file_name");
             String destFolder = args.getString("local_folder");
-            logger.info(destFolder + "/" + fileName);
             try{
                 download(fileName, destFolder);
             }catch(NoSuchFileException e){
