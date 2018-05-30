@@ -46,7 +46,7 @@ public class MetadataStoreTest{
   private static final Logger logger = Logger.getLogger(MetadataStoreTest.class.getName());
   private static MetadataTestServer testServer;
   private static BlockTestServer blockServer;
-  private int concurrentTestFlag = 0;
+  private volatile int concurrentTestFlag = 0;
 
   public static class MetadataTestServer extends Thread{
       private static MetadataStore metadataStoreServer;
@@ -134,7 +134,6 @@ public class MetadataStoreTest{
   }
 
   @Test
-  @DisplayName("TEST: Ping() RPC call")
   public void pingTest(){
       Empty req = Empty.newBuilder().build();
       Empty metaRes = metadataStub.ping(req);
@@ -314,6 +313,6 @@ public class MetadataStoreTest{
          worker.start();
       }
 
-      assertEquals(concurrentTestFlag, 1);
+      assertEquals(1, concurrentTestFlag);
   }
 }

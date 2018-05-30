@@ -63,6 +63,10 @@ public final class MetadataStore {
         if (server != null) {
             server.shutdown();
         }
+
+        if(blockChannel != null){
+            blockChannel.shutdown();
+        }
     }
 
     private void blockUntilShutdown() throws InterruptedException {

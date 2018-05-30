@@ -79,8 +79,7 @@ public final class Client {
     * @return void
     **/
     private void uploadMissingBlockToBlockStore(Path filePath, List<String> missing){
-      String fileName = filePath.getFileName().toString();
-      List<Block> blks = getFileBlockList(fileName);
+      List<Block> blks = getFileBlockList(filePath.toString());
       HashMap<String, Integer> miss_map = new HashMap<String, Integer>();
       // if missing is null, upload all blocks
       if(missing == null || missing.size() == 0){
@@ -214,7 +213,111 @@ public final class Client {
             return null;
         }
 
+        if(!Files.exists(fullPath)){
+            return null;
+        }
+
         return fullPath;
+    }
+
+    /**
+    * update local file with current hash list
+    * @param localFilePath the path object containing local file
+    * @param missingBlocks list of blocks not current in local file
+    * @param currentHashList the current file hash list
+    * @return void
+    */
+    private void modifyLocalFileToRemote(Path localFilePath, List<Block> missingBlocks, List<String> currentHashList){
+        List<Block> localBlocks = getFileBlockList(localFilePath.toString());
+        HashMap<String, byte[]> blockMap = new HashMap<>();
+        FileChannel fc = null;
+        for(Block blk : missingBlocks){
+          blockMap.put(blk.getHash(), blk.getData().toByteArray());
+        }
+
+        for(Block blk : localBlocks){
+          blockMap.put(blk.getHash(), blk.getData().toByteArray());
+        }
+
+        try{
+            fc = (FileChannel) Files.newByteChannel(localFilePath, StandardOpenOption.WRITE);
+            String encoding = System.getProperty("file.encoding");
+
+            for(String hash : currentHashList) {
+                ByteBuffer buf = ByteBuffer.wrap(blockMap.get(hash));
+                fc.write(buf);
+              }
+              fc.close();
+          }catch(IOException e){
+              logger.warning("caught IO exception: " + e.toString());
+              e.printStackTrace();
+              return;
+          }
+    }
+
+    /**
+    * create new empty file
+    * @param fileName
+    * @param destFolder
+    * @return Path object to newly created file; null if file already exist
+    */
+    private Path createFile(String fileName, String destFolder){
+        Path res = Paths.get(destFolder + "/" + fileName);
+        try{
+            Files.createDirectories(Paths.get(destFolder));
+            res = Files.createFile(res);
+        }catch(Exception e){
+          logger.info("file already exist");
+          return null;
+        }
+
+        return res;
+    }
+
+    /**
+    * compare and get the hash list that local file is missing
+    * @param filePath
+    * @param curHashList current file hash list in metadata store
+    * @return list of missing hash list
+    */
+    private List<String> getLocalMissingHashList(Path filePath, List<String> curHashList){
+        List<String> localHashList = getFileHashList(filePath.toString());
+        HashMap<String, Integer> missing_map = new HashMap<String, Integer>();
+        List<String> res = new ArrayList<String>();
+
+        for(String hash : curHashList){
+            missing_map.put(hash, 1);
+        }
+
+        for(String hash : localHashList){
+            if(missing_map.containsKey(hash)){
+              missing_map.put(hash, 0);
+            }
+        }
+
+        for(String hash : missing_map.keySet()){
+            if(missing_map.get(hash) > 0){
+                res.add(hash);
+            }
+        }
+
+        return res;
+    }
+
+    /**
+    * download blocks from block store
+    * @param hashList
+    * @return list of blocks downloaded
+    */
+    private List<Block> downloadBlocks(List<String> hashList){
+        List<Block> downloadedBlocks = new ArrayList<Block>();
+        for(String hash : hashList){
+            Block req = BlockUtils.hashToBlock(hash);
+            if(blockStub.hasBlock(req).getAnswer()){
+              downloadedBlocks.add(blockStub.getBlock(req));
+            }
+        }
+        return downloadedBlocks;
     }
 
     /**
@@ -289,9 +392,13 @@ public final class Client {
     * Client specifies filename, verison, and delete
     * @param fileName remote file name
     * @return true if delete succeed, false if error
+    * @throws NoSuchFileException
     */
-    protected boolean delete(String fileName){
+    protected boolean delete(String fileName) throws NoSuchFileException{
         int version = getFileVersionMetaStore(fileName);
+        if(version == 0){
+          throw new NoSuchFileException("No file found in remote");
+        }
         FileInfo req = FileInfoUtils.toFileInfo(fileName, version + 1, null, true);
 
         WriteResult res = metadataStub.deleteFile(req);
@@ -318,21 +425,18 @@ public final class Client {
     */
     protected void download(String fileName, String destFolder) throws NoSuchFileException{
         List<String> local_missing = null;
-        String localFilePathName = destFolder + fileName;
+        String localFilePathName = destFolder + "/" + fileName;
         Path localFilePath = getFilePath(localFilePathName);
+        if(localFilePath == null){
+            localFilePath = createFile(fileName, destFolder);
+        }
 
         FileInfo req = FileInfoUtils.toFileInfo(fileName, 0, null, false);
         FileInfo res = metadataStub.readFile(req);
 
         // file deleted
-        if(res.getDeleted()){
+        if(res.getDeleted() || res.getVersion() == 0){
             throw new NoSuchFileException("No such file remotely");
-        }
-
-        // Check if file exist locally
-        if(localFilePath == null){
-            //file does not exist locally
-            localFilePath = createFile(fileName, destFolder);
         }
 
         List<String> curHashList = res.getBlocklistList();
@@ -342,110 +446,16 @@ public final class Client {
     }
 
     /**
-    * update local file with current hash list
-    * @param localFilePath the path object containing local file
-    * @param missingBlocks list of blocks not current in local file
-    * @param currentHashList the current file hash list
-    * @return void
-    */
-    private void modifyLocalFileToRemote(Path localFilePath, List<Block> missingBlocks, List<String> currentHashList){
-        List<Block> localBlocks = getFileBlockList(localFilePath.toString());
-        HashMap<String, byte[]> blockMap = new HashMap<>();
-        FileChannel fc = null;
-        for(Block blk : missingBlocks){
-          blockMap.put(blk.getHash(), blk.getData().toByteArray());
-        }
-
-        for(Block blk : localBlocks){
-          blockMap.put(blk.getHash(), blk.getData().toByteArray());
-        }
-
-        try{
-            fc = (FileChannel) Files.newByteChannel(localFilePath, StandardOpenOption.WRITE);
-            String encoding = System.getProperty("file.encoding");
-
-            for(String hash : currentHashList) {
-                ByteBuffer buf = ByteBuffer.wrap(blockMap.get(hash));
-                fc.write(buf);
-              }
-              fc.close();
-          }catch(IOException e){
-              logger.warning("caught IO exception: " + e.toString());
-              e.printStackTrace();
-              return;
-          }
-    }
-
-    /**
-    * create new empty file
-    * @param fileName
-    * @param destFolder
-    * @return Path object to newly created file; null if file already exist
-    */
-    private Path createFile(String fileName, String destFolder){
-        Path res = Paths.get(destFolder + fileName);
-        try{
-            res = Files.createFile(res);
-        }catch(Exception e){
-          logger.info("file already exist");
-          return null;
-        }
-
-        return res;
-    }
-
-    /**
-    * compare and get the hash list that local file is missing
-    * @param filePath
-    * @param curHashList current file hash list in metadata store
-    * @return list of missing hash list
-    */
-    private List<String> getLocalMissingHashList(Path filePath, List<String> curHashList){
-        List<String> localHashList = getFileHashList(filePath.toString());
-        HashMap<String, Integer> missing_map = new HashMap<String, Integer>();
-        List<String> res = new ArrayList<String>();
-
-        for(String hash : curHashList){
-            missing_map.put(hash, 1);
-        }
-
-        for(String hash : localHashList){
-            if(missing_map.containsKey(hash)){
-              missing_map.put(hash, 0);
-            }
-        }
-
-        for(String hash : missing_map.keySet()){
-            if(missing_map.get(hash) > 0){
-                res.add(hash);
-            }
-        }
-
-        return res;
-    }
-
-    /**
-    * download blocks from block store
-    * @param hashList
-    * @return list of blocks downloaded
-    */
-    private List<Block> downloadBlocks(List<String> hashList){
-        List<Block> downloadedBlocks = new ArrayList<Block>();
-        for(String hash : hashList){
-            Block req = BlockUtils.hashToBlock(hash);
-            if(blockStub.hasBlock(req).getAnswer()){
-              downloadedBlocks.add(blockStub.getBlock(req));
-            }
-        }
-        return downloadedBlocks;
-    }
-
-    /**
     * Main client thread: specifying services
     */
+    @VisibleForTesting
+    public void serveForTest(Namespace args){
+      this.serve(args);
+    }
 
     private void serve(Namespace args){
         String cmd = args.getString("command");
+        logger.info("Command: " + cmd);
         String fileName = "";
         switch(cmd){
           case Configs.UPLOAD:
@@ -453,57 +463,67 @@ public final class Client {
             try{
                 if(!this.upload(localPath)){
                   // not sure how to handle this
-                  System.out.println("MetadataStore is not the leader");
+                  System.out.print("Failed");
                 }else{
-                  System.out.println(Configs.OK);
+                  System.out.print(Configs.OK);
                 }
             }catch(NoSuchFileException e){
-                System.out.println(Configs.NOTFOUND);
+                System.out.print(Configs.NOTFOUND);
             }
             break;
           case Configs.DOWNLOAD:
             fileName = args.getString("file_name");
             String destFolder = args.getString("local_folder");
-
+            logger.info(destFolder + "/" + fileName);
             try{
                 download(fileName, destFolder);
             }catch(NoSuchFileException e){
-                System.out.println(Configs.NOTFOUND);
+                System.out.print(Configs.NOTFOUND);
                 break;
             }
 
-            System.out.println(Configs.OK);
+            System.out.print(Configs.OK);
             break;
           case Configs.DELETE:
             fileName = args.getString("file_name");
-            if(!this.delete(fileName)){
-                System.out.println("MetadataStore is not the leader");
-            }else{
-                System.out.println(Configs.OK);
+            try{
+                if(!this.delete(fileName)){
+                    System.out.print("MetadataStore is not the leader");
+                }else{
+                    System.out.print(Configs.OK);
+                }
+            }catch(NoSuchFileException e){
+                System.out.print(Configs.NOTFOUND);
             }
             break;
           default: //getversion
             fileName = args.getString("file_name");
             List<Integer> versions = this.getVersion(fileName);
-            int notExistCount = 0;
-            for(int ver : versions){
-              if(ver == 0){
-                notExistCount++;
-              }
-            }
+            // int notExistCount = 0;
+            // for(int ver : versions){
+            //   if(ver == 0){
+            //     notExistCount++;
+            //   }
+            // }
+            //
+            // if(notExistCount > 0 || versions.size() == 0){
+            //   System.out.println(Configs.NOTFOUND);
+            // }
+            System.out.print(versions.get(0));
 
-            if(notExistCount > 0 || versions.size() == 0){
-              System.out.println(Configs.NOTFOUND);
-            }
-
-            for(int ver : versions){
-              System.out.print(ver + " ");
+            for(int i = 1; i < versions.size(); i++){
+              System.out.print(" " + versions.get(i));
             }
         }
     }
   	/**
   	 * TODO: Add command line handling here
   	 **/
+     @VisibleForTesting
+     public static Namespace parseArgsForTest(String[] args){
+        return parseArgs(args);
+     }
+
       private static Namespace parseArgs(String[] args) {
           ArgumentParser parser = ArgumentParsers.newFor("Client").build()
                   .description("Client for SurfStore");
@@ -513,7 +533,7 @@ public final class Client {
                   .help("Surfstore command: -upload, -download, -delete, -getversion");
           parser.addArgument("file_name").type(String.class)
                   .help("local or remote file name, corresponding to command");
-          parser.addArgument("local_folder").type(String.class)
+          parser.addArgument("local_folder").nargs("?").type(String.class)
                   .help("folder for file downloads");
 
           Namespace res = null;
