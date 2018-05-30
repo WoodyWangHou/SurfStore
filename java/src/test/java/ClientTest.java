@@ -26,6 +26,27 @@ public class ClientTest{
   private static final Logger logger = Logger.getLogger(MetadataStoreTest.class.getName());
   private static final String testFolder = "../testfiles";
   private static final String testFile = testFolder + "/test.t";
+  private static ManagedChannel metadataChannel;
+  private static MetadataStoreGrpc.MetadataStoreBlockingStub metadataStub;
+  private static ManagedChannel blockdataChannel;
+  private static BlockStoreGrpc.BlockStoreBlockingStub blockStub;
+
+  // Test Server reset helper
+  private static void reset(){
+    // reset test server for testing
+    Empty clean = Empty.newBuilder().build();
+    metadataStub.resetStore(clean);
+    blockStub.resetStore(clean);
+  }
+
+  // Test file upload helper
+  private static void upload(){
+      for(Block blk : fileBlks){
+        blockStub.storeBlock(blk);
+      }
+      return;
+  }
+  
   /**
   * Add Test Cases Below
   **/

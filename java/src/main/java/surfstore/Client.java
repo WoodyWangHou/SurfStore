@@ -10,13 +10,16 @@ package surfstore;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.Path;
+import java.nio.file.NoSuchFileException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
+import java.util.Set;
 import java.util.HashMap;
 import java.util.List;
 import java.util.ArrayList;
@@ -70,27 +73,19 @@ public final class Client {
     }
 
     /**
-    * Above is grpc generated server code
-    * Client's method for execution
-    * Below is the client code to be implemented
-    * Below will implement upload(FileName), download(FileName), delete(FileName), getVersion(FN)
-    **/
-
-    /**
     * upload file to blockstore with missing blocks specified
-    * @param fileName local file to be uploaded
+    * @param filePath path of local file to be uploaded
     * @param missing list of blocks missing in blockstore; if missing is null, upload all file; if missing is empty, abort
     * @return void
     **/
-
-    private void uploadMissingBlockToBlockStore(String fileName, List<String> missing){
+    private void uploadMissingBlockToBlockStore(Path filePath, List<String> missing){
+      String fileName = filePath.getFileName().toString();
       List<Block> blks = getFileBlockList(fileName);
       HashMap<String, Integer> miss_map = new HashMap<String, Integer>();
       // if missing is null, upload all blocks
       if(missing == null || missing.size() == 0){
         for(Block blk : blks){
           blockStub.storeBlock(blk);
-          TestUtils.ensure(blockStub.hasBlock(blk).getAnswer() == true, "blockstore stored failed"); // to be commented out
         }
         return;
       }
@@ -104,7 +99,6 @@ public final class Client {
         String hash = blk.getHash();
         if(miss_map.containsKey(hash)){
           blockStub.storeBlock(blk);
-          TestUtils.ensure(blockStub.hasBlock(blk).getAnswer() == true, "blockstore stored failed"); // to be commented out
         }
       }
 
@@ -112,8 +106,8 @@ public final class Client {
     }
 
     /**
-    * Check if file already exist in metastore.
-    * @param fileName the name of fsile
+    * get file version from lead metadata store
+    * @param fileName the name of file
     * @return current file on metastore version number
     **/
     private int getFileVersionMetaStore(String fileName){
@@ -127,15 +121,14 @@ public final class Client {
     * @param fileName the name of file
     * @return hash list of the file
     **/
-
     @VisibleForTesting
     // wrapper for testing
-    public static List<String> getFileHashListForTest(String fileName){
-      return getFileHashList(fileName);
+    public static List<String> getFileHashListForTest(String localPath){
+      return getFileHashList(localPath);
     }
 
-    private static List<String> getFileHashList(String fileName){
-        List<Block> block_list = getFileBlockList(fileName);
+    private static List<String> getFileHashList(String localPath){
+        List<Block> block_list = getFileBlockList(localPath);
         List<String> res = new ArrayList<String>();
         for(Block blk : block_list){
           res.add(blk.getHash());
@@ -149,30 +142,24 @@ public final class Client {
     * @param fileName the name of file
     * @return List<Block>
     **/
-
     @VisibleForTesting
     // wrapper for testing
-    public static List<Block> getFileBlockListForTest(String fileName){
-      return getFileBlockList(fileName);
+    public static List<Block> getFileBlockListForTest(String localPath){
+      return getFileBlockList(localPath);
     }
 
-    private static List<Block> getFileBlockList(String fileName){
-      Path inputPath = Paths.get(fileName);
-      Path fullPath = null;
+    private static List<Block> getFileBlockList(String localPath){
+      List<Block> res = new ArrayList<Block>();
+      Path fullPath = Paths.get(localPath);
+      if(fullPath == null){
+        return res;
+      }
+
       int version = 0;
       FileChannel fc = null;
       ByteBuffer buf = null;
-      List<Block> res = new ArrayList<Block>();
       try{
-          fullPath = inputPath.toRealPath();
-      }catch(IOException e){
-        // file not exist, return empty list
-          logger.warning("File not found, I/O errors");
-          return null;
-      }
-
-      try{
-          fc = (FileChannel)Files.newByteChannel(fullPath);
+          fc = (FileChannel)Files.newByteChannel(fullPath, StandardOpenOption.READ);
           buf = ByteBuffer.allocate(Configs.BLOCK_SIZE);
           String encoding = System.getProperty("file.encoding");
 
@@ -183,6 +170,7 @@ public final class Client {
               res.add(bl);
               buf.flip();
             }
+            fc.close();
         }catch(IOException e){
             logger.warning("caught IO exception: " + e.toString());
             e.printStackTrace();
@@ -193,16 +181,40 @@ public final class Client {
 
     /**
     * getMissingBlocks: Query metastore to get missing blocks
-    * @param fileName the name of file
-    * @param version current version of the file
+    * @param localPath Path of file
+    * @param version version of the file wish to upload
     * @return WriteResult check result from MetaDataStore, which contains missing blocks
     **/
-
-    private WriteResult updateMetaStore(String fileName, int version){
-        List<String> hashList = getFileHashList(fileName);
-        FileInfo req = FileInfoUtils.toFileInfo(fileName, version + 1, hashList, false);
+    private WriteResult updateMetaStore(Path localPath, int version){
+        String fileName = localPath.getFileName().toString();
+        List<String> hashList = getFileHashList(localPath.toString());
+        FileInfo req = FileInfoUtils.toFileInfo(fileName, version, hashList, false);
         WriteResult res = metadataStub.modifyFile(req);
         return res;
+    }
+
+    /**
+    * get Path object given file path string
+    * @param localPath String of local file Path
+    * @return Path object; null if file cannot be found
+    **/
+    private Path getFilePath(String localPath){
+        Path inputPath = Paths.get(localPath);
+        Path fullPath = null;
+
+        try{
+            fullPath = inputPath.toRealPath();
+        }catch(IOException e){
+          // file not exist, return false
+            logger.warning("File not found, I/O errors");
+            return null;
+        }
+
+        if(!Files.isReadable(fullPath)){
+            return null;
+        }
+
+        return fullPath;
     }
 
     /**
@@ -212,115 +224,283 @@ public final class Client {
     * Dependent Method: uploadToBlockStore, isFileExist, getMissingBlk
     * @param fileName remote file name of the file to be uploaded
     * @param localPath local file path
-    * @return boolean true if success, false if failed
-    * @throws NoSuchFileException IOException RuntimeException
+    * @return boolean true if success, false if metadataStore return NOT_LEADER
+    * @throws NoSuchFileException
     **/
-    private boolean upload(String fileName, String localPath){
+    protected boolean upload(String localPath) throws NoSuchFileException{
         // if local file exists and can be read, contact metastore to verify if file exists
-        Path inputPath = Paths.get(localPath);
-        Path fullPath = null;
         int version = 0;
-        try{
-            fullPath = inputPath.toRealPath();
-        }catch(IOException e){
-          // file not exist, return false
-            logger.warning("File not found, I/O errors");
-            return false;
+        Path fullPath = getFilePath(localPath);
+        if(fullPath == null){
+            throw new NoSuchFileException("file cannot be found");
         }
+        String fileName = fullPath.getFileName().toString();
 
-        if(!Files.isReadable(fullPath)){
-            return false;
+        version = getFileVersionMetaStore(fileName);
+        WriteResult res = updateMetaStore(fullPath, version + 1);
+        switch(res.getResult()){
+          case OK:
+            // file already exist
+            logger.info("File uploaded, OK");
+            return true;
+          case OLD_VERSION:
+            // retry upload until success
+            logger.info("File version not correct,retry to upload");
+            return upload(localPath);
+          case MISSING_BLOCKS:
+            logger.info("File missing blocks in block store, uploading blocks to block store");
+            uploadMissingBlockToBlockStore(fullPath, res.getMissingBlocksList());
+            return upload(localPath);
+          default:
+          // not LEADER, change leader metastore then retry
+          // return false if not leader
+          return false;
         }
-
-        if((version = this.getFileVersionMetaStore(fileName)) > 0){
-          WriteResult res = this.updateMetaStore(fileName, version);
-          switch(res.getResult()){
-            case OK:
-              // file already exist
-              logger.info("File uploaded, OK");
-              return true;
-            case OLD_VERSION:
-              // retry upload until success
-              logger.info("File version not correct,retry to upload");
-              return upload(fileName, localPath);
-            case MISSING_BLOCKS:
-              logger.info("File missing blocks in block store, uploading blocks to block store");
-              uploadMissingBlockToBlockStore(fileName, res.getMissingBlocksList());
-              return upload(fileName, localPath);
-            default:
-            // not LEADER, change leader metastore then retry
-            // TODO: to implement handling functionality
-            return upload(fileName, localPath);
-          }
-        }else{
-            logger.info("File not found on surfstore, create new file, and upload");
-            uploadMissingBlockToBlockStore(fileName, null);
-            WriteResult res = this.updateMetaStore(fileName, 1);
-            return upload(fileName, localPath);
-        }
-    }
+      }
 
     /**
     * getVersion(fileName) is the method for reading versions of a file from surfstore
     * it will read one version if centralized
     * return three versions if distributed
     * @param fileName
-    * @return list of versions
+    * @return list of versions (1 if in centralized mode)
     **/
-    private List<Integer> getVersion(String fileName){
+    protected List<Integer> getVersion(String fileName){
         List<Integer> result = new ArrayList<Integer>();
         FileInfo req = FileInfoUtils.toFileInfo(fileName, 0, null, false);
-        // we may need to modify the code here to query the leader stub
-        FileInfo res = metadataStub.getVersion(req);
-        result.add(res.getVersion());
+        // get version from primary
+        result.add(getFileVersionMetaStore(fileName));
+
+        // Get Version from followers
+        for(int id: config.getMetadataServerIds()){
+          ManagedChannel metadataFollowerChannel = ManagedChannelBuilder.forAddress("127.0.0.1", id)
+                                                         .usePlaintext(true).build();
+          MetadataStoreGrpc.MetadataStoreBlockingStub  followerStub = MetadataStoreGrpc.newBlockingStub(metadataFollowerChannel);
+          FileInfo res = followerStub.getVersion(req);
+          result.add(res.getVersion());
+          metadataFollowerChannel.shutdown();
+        }
+
         return result;
+    }
+
+    /**
+    * delete(fileName), delete a remote file from metastore
+    * Client specifies filename, verison, and delete
+    * @param fileName remote file name
+    * @return true if delete succeed, false if error
+    */
+    protected boolean delete(String fileName){
+        int version = getFileVersionMetaStore(fileName);
+        FileInfo req = FileInfoUtils.toFileInfo(fileName, version + 1, null, true);
+
+        WriteResult res = metadataStub.deleteFile(req);
+        switch(res.getResult()){
+            case OK:
+              return true;
+            case OLD_VERSION:
+              // retry delete until success
+              logger.info("version is obselete, retry deletion");
+              return delete(fileName);
+            default:
+              logger.info("NOT LEADER, delete failed");
+              return false;
+        }
     }
 
     /**
     * download(fileName) is the method for downloading a file from surfstore
     * it will contact leader node to download if distributed
-    * @param FileName
+    * @param FileName remote file name
+    * @param destFolder destination folder path
     * @return true if download succeed; false if download failed
+    * @throws NoSuchFileException
     */
-    private boolean download(String fileName, String dest){
-        // TODO: to be done
+    protected void download(String fileName, String destFolder) throws NoSuchFileException{
+        List<String> local_missing = null;
+        String localFilePathName = destFolder + fileName;
+        Path localFilePath = getFilePath(localFilePathName);
+
         FileInfo req = FileInfoUtils.toFileInfo(fileName, 0, null, false);
-        return true;
+        FileInfo res = metadataStub.readFile(req);
+
+        // file deleted
+        if(res.getDeleted()){
+            throw new NoSuchFileException("No such file remotely");
+        }
+
+        // Check if file exist locally
+        if(localFilePath == null){
+            //file does not exist locally
+            localFilePath = createFile(fileName, destFolder);
+        }
+
+        List<String> curHashList = res.getBlocklistList();
+        local_missing = getLocalMissingHashList(localFilePath, curHashList);
+        List<Block> missing_downloaded = downloadBlocks(local_missing);
+        modifyLocalFileToRemote(localFilePath, missing_downloaded, curHashList);
     }
+
     /**
-    * This is the internal method that stores server logic
-    * @param void
+    * update local file with current hash list
+    * @param localFilePath the path object containing local file
+    * @param missingBlocks list of blocks not current in local file
+    * @param currentHashList the current file hash list
     * @return void
-    **/
-  	private void go() {
-          // TODO: To be commented back when implementing metadataStore
-  		    // metadataStub.ping(Empty.newBuilder().build());
-          // logger.info("Successfully pinged the Metadata server");
+    */
+    private void modifyLocalFileToRemote(Path localFilePath, List<Block> missingBlocks, List<String> currentHashList){
+        List<Block> localBlocks = getFileBlockList(localFilePath.toString());
+        HashMap<String, byte[]> blockMap = new HashMap<>();
+        FileChannel fc = null;
+        for(Block blk : missingBlocks){
+          blockMap.put(blk.getHash(), blk.getData().toByteArray());
+        }
 
-          blockStub.ping(Empty.newBuilder().build());
-          logger.info("Successfully pinged the Blockstore server");
+        for(Block blk : localBlocks){
+          blockMap.put(blk.getHash(), blk.getData().toByteArray());
+        }
 
-          // TODO: Implement your client here
-          Block b1 = BlockUtils.stringToBlock("block_01");
-          Block b2 = BlockUtils.stringToBlock("block_01");
+        try{
+            fc = (FileChannel) Files.newByteChannel(localFilePath, StandardOpenOption.WRITE);
+            String encoding = System.getProperty("file.encoding");
 
-          // TODO: can repalce ensure with jUnit Test
-          TestUtils.ensure(blockStub.hasBlock(b1).getAnswer() == false);
-          TestUtils.ensure(blockStub.hasBlock(b2).getAnswer() == false);
+            for(String hash : currentHashList) {
+                ByteBuffer buf = ByteBuffer.wrap(blockMap.get(hash));
+                fc.write(buf);
+              }
+              fc.close();
+          }catch(IOException e){
+              logger.warning("caught IO exception: " + e.toString());
+              e.printStackTrace();
+              return;
+          }
+    }
 
-          blockStub.storeBlock(b1);
-          TestUtils.ensure(blockStub.hasBlock(b1).getAnswer() == true);
+    /**
+    * create new empty file
+    * @param fileName
+    * @param destFolder
+    * @return Path object to newly created file; null if file already exist
+    */
+    private Path createFile(String fileName, String destFolder){
+        Path res = Paths.get(destFolder + fileName);
+        try{
+            res = Files.createFile(res);
+        }catch(Exception e){
+          logger.info("file already exist");
+          return null;
+        }
 
-          blockStub.storeBlock(b2);
-          TestUtils.ensure(blockStub.hasBlock(b2).getAnswer() == true);
+        return res;
+    }
 
-          Block b1prime = blockStub.getBlock(b1);
-          TestUtils.ensure(b1prime.getHash().equals(b1.getHash()));
-          TestUtils.ensure(b1prime.getData().equals(b1.getData()));
+    /**
+    * compare and get the hash list that local file is missing
+    * @param filePath
+    * @param curHashList current file hash list in metadata store
+    * @return list of missing hash list
+    */
+    private List<String> getLocalMissingHashList(Path filePath, List<String> curHashList){
+        List<String> localHashList = getFileHashList(filePath.toString());
+        HashMap<String, Integer> missing_map = new HashMap<String, Integer>();
+        List<String> res = new ArrayList<String>();
 
-          logger.info("All test passed");
-  	}
+        for(String hash : curHashList){
+            missing_map.put(hash, 1);
+        }
 
+        for(String hash : localHashList){
+            if(missing_map.containsKey(hash)){
+              missing_map.put(hash, 0);
+            }
+        }
+
+        for(String hash : missing_map.keySet()){
+            if(missing_map.get(hash) > 0){
+                res.add(hash);
+            }
+        }
+
+        return res;
+    }
+
+    /**
+    * download blocks from block store
+    * @param hashList
+    * @return list of blocks downloaded
+    */
+    private List<Block> downloadBlocks(List<String> hashList){
+        List<Block> downloadedBlocks = new ArrayList<Block>();
+        for(String hash : hashList){
+            Block req = BlockUtils.hashToBlock(hash);
+            if(blockStub.hasBlock(req).getAnswer()){
+              downloadedBlocks.add(blockStub.getBlock(req));
+            }
+        }
+        return downloadedBlocks;
+    }
+
+    /**
+    * Main client thread: specifying services
+    */
+
+    private void serve(Namespace args){
+        String cmd = args.getString("command");
+        String fileName = "";
+        switch(cmd){
+          case Configs.UPLOAD:
+            String localPath = args.getString("file_name");
+            try{
+                if(!this.upload(localPath)){
+                  // not sure how to handle this
+                  System.out.println("MetadataStore is not the leader");
+                }else{
+                  System.out.println(Configs.OK);
+                }
+            }catch(NoSuchFileException e){
+                System.out.println(Configs.NOTFOUND);
+            }
+            break;
+          case Configs.DOWNLOAD:
+            fileName = args.getString("file_name");
+            String destFolder = args.getString("local_folder");
+
+            try{
+                download(fileName, destFolder);
+            }catch(NoSuchFileException e){
+                System.out.println(Configs.NOTFOUND);
+                break;
+            }
+
+            System.out.println(Configs.OK);
+            break;
+          case Configs.DELETE:
+            fileName = args.getString("file_name");
+            if(!this.delete(fileName)){
+                System.out.println("MetadataStore is not the leader");
+            }else{
+                System.out.println(Configs.OK);
+            }
+            break;
+          default: //getversion
+            fileName = args.getString("file_name");
+            List<Integer> versions = this.getVersion(fileName);
+            int notExistCount = 0;
+            for(int ver : versions){
+              if(ver == 0){
+                notExistCount++;
+              }
+            }
+
+            if(notExistCount > 0 || versions.size() == 0){
+              System.out.println(Configs.NOTFOUND);
+            }
+
+            for(int ver : versions){
+              System.out.print(ver + " ");
+            }
+        }
+    }
   	/**
   	 * TODO: Add command line handling here
   	 **/
@@ -329,6 +509,12 @@ public final class Client {
                   .description("Client for SurfStore");
           parser.addArgument("config_file").type(String.class)
                   .help("Path to configuration file");
+          parser.addArgument("command").type(String.class)
+                  .help("Surfstore command: -upload, -download, -delete, -getversion");
+          parser.addArgument("file_name").type(String.class)
+                  .help("local or remote file name, corresponding to command");
+          parser.addArgument("local_folder").type(String.class)
+                  .help("folder for file downloads");
 
           Namespace res = null;
           try {
@@ -351,7 +537,7 @@ public final class Client {
           Client client = new Client(config);
 
           try {
-          	client.go();
+          	client.serve(c_args);
           } finally {
               client.shutdown();
           }
