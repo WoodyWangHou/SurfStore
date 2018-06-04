@@ -60,6 +60,7 @@ public final class Client {
     // private HashMap<String, FileInfo> clientMetaStore;
 
     public Client(ConfigReader config) {
+        // only connect to leader metadata
         this.metadataChannel = ManagedChannelBuilder.forAddress("127.0.0.1", config.getMetadataPort(config.getLeaderNum()))
                 .usePlaintext(true).build();
         this.metadataStub = MetadataStoreGrpc.newBlockingStub(metadataChannel);
@@ -385,8 +386,8 @@ public final class Client {
         result.add(getFileVersionMetaStore(fileName));
 
         // Get Version from followers
-        for(int id: config.getMetadataServerIds()){
-          ManagedChannel metadataFollowerChannel = ManagedChannelBuilder.forAddress("127.0.0.1", id)
+        for(int id: config.getFollowersIds()){
+          ManagedChannel metadataFollowerChannel = ManagedChannelBuilder.forAddress("127.0.0.1", config.getMetadataPort(id))
                                                          .usePlaintext(true).build();
           MetadataStoreGrpc.MetadataStoreBlockingStub  followerStub = MetadataStoreGrpc.newBlockingStub(metadataFollowerChannel);
           FileInfo res = followerStub.getVersion(req);
@@ -409,8 +410,8 @@ public final class Client {
         if(version == 0){
           throw new NoSuchFileException("No file found in remote");
         }
-        FileInfo req = FileInfoUtils.toFileInfo(fileName, version + 1, null, true);
 
+        FileInfo req = FileInfoUtils.toFileInfo(fileName, version + 1, null, true);
         WriteResult res = metadataStub.deleteFile(req);
         switch(res.getResult()){
             case OK:
@@ -419,8 +420,10 @@ public final class Client {
               // retry delete until success
               logger.info("version is obselete, retry deletion");
               return delete(fileName);
-            default:
+            case NOT_LEADER:
               logger.info("NOT LEADER, delete failed");
+              return false;
+            default:
               return false;
         }
     }
@@ -508,16 +511,6 @@ public final class Client {
           default: //getversion
             fileName = args.getString("file_name");
             List<Integer> versions = this.getVersion(fileName);
-            // int notExistCount = 0;
-            // for(int ver : versions){
-            //   if(ver == 0){
-            //     notExistCount++;
-            //   }
-            // }
-            //
-            // if(notExistCount > 0 || versions.size() == 0){
-            //   System.out.println(Configs.NOTFOUND);
-            // }
             System.out.print(versions.get(0));
 
             for(int i = 1; i < versions.size(); i++){

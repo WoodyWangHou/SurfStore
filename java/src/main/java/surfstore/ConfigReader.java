@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.nio.file.Files;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.Set;
@@ -84,8 +85,17 @@ public final class ConfigReader {
 
     public Set<Integer> getMetadataServerIds(){
       Set<Integer> all = metadataPorts.keySet();
-      all.remove(this.getLeaderNum());
       return all;
+    }
+
+    public Set<Integer> getFollowersIds(){
+      Set<Integer> res = new HashSet<>();
+      for(int id : metadataPorts.keySet()){
+        if(id != this.getLeaderNum()){
+          res.add(id);
+        }
+      }
+      return res;
     }
 
     public int getNumMetadataServers() {

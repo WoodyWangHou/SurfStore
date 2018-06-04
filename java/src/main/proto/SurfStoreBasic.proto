@@ -72,6 +72,18 @@ service MetadataStore {
 
     // FOR TESTING ONLY
     rpc ResetStore(Empty) returns (Empty) {}
+
+    // heartbeat
+    rpc Heartbeat(HeartbeatArgs) returns (HeartbeatReply) {}
+
+    // vote for new command,
+    rpc Vote(LogEntry) returns (SimpleAnswer) {}
+
+    // Ask the follower to commit the new log entry
+    rpc Commit(LogEntry) returns (Empty) {}
+
+    // Ask the follower to abort the new log entry
+    rpc Abort(Empty) returns (Empty)  {}
 }
 
 service BlockStore {
@@ -97,6 +109,8 @@ service BlockStore {
 
     // FOR TESTING ONLY
     rpc ResetStore(Empty) returns (Empty) {}
+
+
 }
 
 // MESSAGES follow.  You may extend these data structures with additional fields,
@@ -124,6 +138,7 @@ message WriteResult {
         OLD_VERSION = 1;
         MISSING_BLOCKS = 2;
         NOT_LEADER = 3;
+        /* DISAGREEMENT = 4; */
     }
     Result result = 1;
     int32 current_version = 2;
@@ -136,4 +151,19 @@ message SimpleAnswer {
 
 message NodeList {
     repeated int32 nodelist = 1;
+}
+
+message LogEntry {
+    int32 index = 1;
+    string command = 2;
+    FileInfo request = 3;
+}
+
+message HeartbeatArgs {
+    repeated LogEntry entries = 1;
+    int32 leadercommit = 2;
+}
+
+message HeartbeatReply {
+    int32 nextindex = 1;
 }

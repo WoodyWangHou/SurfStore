@@ -10,9 +10,11 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.io.File;
 import java.util.logging.Logger;
 import java.util.ArrayList;
+import java.util.Set;
 import java.util.List;
 import java.util.HashMap;
 import java.io.ByteArrayOutputStream;
+import java.lang.Thread;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -48,30 +50,36 @@ public class ClientTest{
 
   private static ManagedChannel metadataChannel;
   private static MetadataStoreGrpc.MetadataStoreBlockingStub metadataStub;
+  private static MetadataStoreGrpc.MetadataStoreBlockingStub[] followerStub;
   private static ManagedChannel blockdataChannel;
   private static BlockStoreGrpc.BlockStoreBlockingStub blockStub;
-  private static MetadataTestServer testServer;
+  private static MetadataTestServer[] testServer;
   private static BlockTestServer blockServer;
   private static Client client;
 
   private static final ByteArrayOutputStream outContent = new ByteArrayOutputStream();
 
-  @BeforeAll
-  public static void init() throws Exception{
-      String configs = "../configs/configCentralized.txt";
-      File configf = new File(configs);
-      ConfigReader config = new ConfigReader(configf);
-
-      fileHashs = Client.getFileHashListForTest(testFile);
-      fileBlks = Client.getFileBlockListForTest(testFile);
-      mkdir("/home/aturing/downloads");
-
-      logger.info("============================= MetaStore Test start===============================");
-      testServer = new MetadataTestServer(config);
+  private static void setUpServer(ConfigReader config){
+      testServer = new MetadataTestServer[config.getNumMetadataServers()];
       blockServer = new BlockStoreTest.BlockTestServer(config);
-      client = new Client(config);
       blockServer.start();
-      testServer.start();
+
+      Integer[] ids = config.getMetadataServerIds().toArray(new Integer[0]);
+
+      for(int i = 0; i < testServer.length; i++){
+        testServer[i] = new MetadataTestServer(config.getMetadataPort(ids[i]), 10, config);
+        testServer[i].start();
+      }
+  }
+
+  private static void setUpTestStubs(ConfigReader config){
+      followerStub = new MetadataStoreGrpc.MetadataStoreBlockingStub[config.getNumMetadataServers() - 1];
+      Integer[] ids = config.getFollowersIds().toArray(new Integer[0]);
+      for(int i = 0; i < ids.length; i ++){
+        ManagedChannel stubChannel = ManagedChannelBuilder.forAddress("127.0.0.1", config.getMetadataPort(ids[i]))
+                .usePlaintext(true).build();
+        followerStub[i] = MetadataStoreGrpc.newBlockingStub(stubChannel);
+      }
 
       metadataChannel = ManagedChannelBuilder.forAddress("127.0.0.1", config.getMetadataPort(config.getLeaderNum()))
               .usePlaintext(true).build();
@@ -79,8 +87,24 @@ public class ClientTest{
       blockdataChannel = ManagedChannelBuilder.forAddress("127.0.0.1", config.getBlockPort())
               .usePlaintext(true).build();
       blockStub = BlockStoreGrpc.newBlockingStub(blockdataChannel);
+  }
 
+  private static void setUpTestStream(){
       System.setOut(new PrintStream(outContent));
+  }
+  @BeforeAll
+  public static void init() throws Exception{
+      mkdir("/home/aturing/downloads");
+      String configs = "../configs/configDistributed.txt";
+      File configf = new File(configs);
+      ConfigReader config = new ConfigReader(configf);
+      fileHashs = Client.getFileHashListForTest(testFile);
+      fileBlks = Client.getFileBlockListForTest(testFile);
+      logger.info("============================= MetaStore Test start===============================");
+      client = new Client(config);
+      setUpServer(config);
+      setUpTestStubs(config);
+      setUpTestStream();
   }
 
   @BeforeEach
@@ -92,11 +116,15 @@ public class ClientTest{
   public static void clean(){
       System.setOut(System.out);
       System.setErr(System.err);
-      testServer.interrupt();
+      for(int i = 0; i < testServer.length; i++){
+        testServer[i].interrupt();
+      }
       blockServer.interrupt();
       try{
         blockServer.join();
-        testServer.join();
+        for(int i = 0; i < testServer.length; i++){
+          testServer[i].join();
+        }
       }catch(Exception e){
         logger.info("Test Interrupted");
       }
@@ -108,6 +136,10 @@ public class ClientTest{
     Empty clean = Empty.newBuilder().build();
     metadataStub.resetStore(clean);
     blockStub.resetStore(clean);
+
+    for(int i = 0; i < followerStub.length; i++){
+      followerStub[i].resetStore(clean);
+    }
   }
 
   // Test file upload helper
@@ -132,13 +164,37 @@ public class ClientTest{
   private static void callClient(String arg){
       String[] args = arg.split(" ");
       Namespace c_args = Client.parseArgsForTest(args);
-      client.serveForTest(c_args);
+      try{
+        client.serveForTest(c_args);
+      }catch(Exception e){
+        e.printStackTrace();
+      }
   }
 
+  private static String getExpectedVersion(String ver, int servers){
+      String res = "";
+      for(int i = 0; i < servers; i++){
+         res  += ver + " ";
+      }
+
+      return res.substring(0, res.length() - 1);
+  }
+
+  private static void sleep(){
+    try{
+      Thread.sleep(500);
+    }catch(Exception e){
+      e.printStackTrace();
+    }
+  }
 
   /**
   * Add Test Cases Below
   **/
+  @BeforeEach
+  public void testReset(){
+    reset();
+  }
 
   @BeforeAll
   public static void logging(){
@@ -176,17 +232,16 @@ public class ClientTest{
 
   @Test
   public void getNotExistFileVersion(){
-      reset();
-      String arg = "../configs/configCentralized.txt getversion mytest.pdf";
+      String arg = "../configs/configDistributed.txt getversion mytest.pdf";
       callClient(arg);
 
-      assertEquals("0", outContent.toString());
+      String answer = getExpectedVersion("0", testServer.length);
+      assertEquals(answer, outContent.toString());
   }
 
   @Test
   public void deleteNotExistFile(){
-      reset();
-      String arg = "../configs/configCentralized.txt delete mytest.pdf";
+      String arg = "../configs/configDistributed.txt delete mytest.pdf";
       callClient(arg);
 
       assertEquals(Configs.NOTFOUND, outContent.toString());
@@ -194,9 +249,7 @@ public class ClientTest{
 
   @Test
   public void downloadNotExistFile(){
-      reset();
-
-      String arg = "../configs/configCentralized.txt download mytest.pdf /home/aturing/downloads";
+      String arg = "../configs/configDistributed.txt download mytest.pdf /home/aturing/downloads";
       callClient(arg);
 
       assertEquals(Configs.NOTFOUND, outContent.toString());
@@ -204,9 +257,7 @@ public class ClientTest{
 
   @Test
   public void uploadFile(){
-      reset();
-
-      String arg = "../configs/configCentralized.txt upload /home/aturing/mytest.pdf";
+      String arg = "../configs/configDistributed.txt upload /home/aturing/mytest.pdf";
       callClient(arg);
 
       assertEquals(Configs.OK, outContent.toString());
@@ -218,13 +269,12 @@ public class ClientTest{
 
   @Test
   public void downloadExistFile(){
-      reset();
-      String arg = "../configs/configCentralized.txt upload /home/aturing/mytest.pdf";
+      String arg = "../configs/configDistributed.txt upload /home/aturing/mytest.pdf";
       callClient(arg);
 
       assertEquals(Configs.OK, outContent.toString());
       outContent.reset();
-      arg = "../configs/configCentralized.txt download mytest.pdf /home/aturing/downloads";
+      arg = "../configs/configDistributed.txt download mytest.pdf /home/aturing/downloads";
       callClient(arg);
 
       assertEquals(Configs.OK, outContent.toString());
@@ -233,56 +283,90 @@ public class ClientTest{
 
   @Test
   public void uploadAndGetVersion(){
-      reset();
-
-      String arg = "../configs/configCentralized.txt upload /home/aturing/mytest.pdf";
+      String arg = "../configs/configDistributed.txt upload /home/aturing/mytest.pdf";
       callClient(arg);
 
       outContent.reset();
-      arg = "../configs/configCentralized.txt getversion mytest.pdf";
+      arg = "../configs/configDistributed.txt getversion mytest.pdf";
       callClient(arg);
 
-      assertEquals("1", outContent.toString());
+      sleep();
+      String answer = getExpectedVersion("1", testServer.length);
+      assertEquals(answer, outContent.toString());
 
       // Second upload
-      arg = "../configs/configCentralized.txt upload /home/aturing/mytest.pdf";
+      arg = "../configs/configDistributed.txt upload /home/aturing/mytest.pdf";
       callClient(arg);
 
       outContent.reset();
-      arg = "../configs/configCentralized.txt getversion mytest.pdf";
+      arg = "../configs/configDistributed.txt getversion mytest.pdf";
       callClient(arg);
 
-      assertEquals("2", outContent.toString());
+      answer = getExpectedVersion("2", testServer.length);
+      assertEquals(answer, outContent.toString());
 
       // Second upload
-      arg = "../configs/configCentralized.txt delete mytest.pdf";
+      outContent.reset();
+      arg = "../configs/configDistributed.txt delete mytest.pdf";
       callClient(arg);
+      assertEquals(Configs.OK, outContent.toString());
 
       outContent.reset();
-      arg = "../configs/configCentralized.txt getversion mytest.pdf";
+      arg = "../configs/configDistributed.txt getversion mytest.pdf";
       callClient(arg);
 
-      assertEquals("3", outContent.toString());
+      answer = getExpectedVersion("3", testServer.length);
+      assertEquals(answer, outContent.toString());
 
   }
 
   @Test
   public void downloadDeleted(){
-      String arg = "../configs/configCentralized.txt upload /home/aturing/mytest.pdf";
+      String arg = "../configs/configDistributed.txt upload /home/aturing/mytest.pdf";
       callClient(arg);
 
       // Second upload
-      arg = "../configs/configCentralized.txt delete mytest.pdf";
+      arg = "../configs/configDistributed.txt delete mytest.pdf";
       callClient(arg);
 
       outContent.reset();
-      arg = "../configs/configCentralized.txt getversion mytest.pdf";
+      arg = "../configs/configDistributed.txt getversion mytest.pdf";
       callClient(arg);
 
-      assertEquals("2", outContent.toString());
+      sleep();
+      String answer = getExpectedVersion("2", testServer.length);
+      assertEquals(answer, outContent.toString());
 
       outContent.reset();
-      arg = "../configs/configCentralized.txt download mytest.pdf /home/aturing/downloads";
+      arg = "../configs/configDistributed.txt download mytest.pdf /home/aturing/downloads";
+      callClient(arg);
+
+      assertEquals(Configs.NOTFOUND, outContent.toString());
+  }
+
+  @Test
+  public void crashAndDownload(){
+      Empty req = Empty.newBuilder().build();
+      followerStub[0].crash(req);
+
+      String arg = "../configs/configDistributed.txt upload /home/aturing/mytest.pdf";
+      callClient(arg);
+
+      // Second upload
+      arg = "../configs/configDistributed.txt delete mytest.pdf";
+      callClient(arg);
+
+      outContent.reset();
+      arg = "../configs/configDistributed.txt getversion mytest.pdf";
+      callClient(arg);
+
+      sleep();
+      String answer = getExpectedVersion("2", testServer.length);
+      assertNotEquals(answer, outContent.toString());
+      followerStub[0].restore(req);
+
+      outContent.reset();
+      arg = "../configs/configDistributed.txt download mytest.pdf /home/aturing/downloads";
       callClient(arg);
 
       assertEquals(Configs.NOTFOUND, outContent.toString());

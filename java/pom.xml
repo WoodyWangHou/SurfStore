@@ -105,7 +105,7 @@
 				</configuration>
 			</plugin>
 
-			<plugin>
+			<!-- <plugin>
 					<artifactId>maven-surefire-plugin</artifactId>
 					<version>2.21.0</version>
 					<configuration>alphabetical</configuration>
@@ -121,7 +121,7 @@
 								 <version>${junit.jupiter.version}</version>
 						 </dependency>
 					</dependencies>
-			</plugin>
+			</plugin> -->
 
 			<plugin>
 				<groupId>org.xolstice.maven.plugins</groupId>
