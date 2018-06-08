@@ -15,16 +15,14 @@ import surfstore.SurfStoreBasic.FileInfo;
 import surfstore.SurfStoreBasic.WriteResult;
 import surfstore.SurfStoreBasic.WriteResult.Result;
 
-public final class Utils{
-    /**
-    * WriteResult utility class
-    **/
-    public static final class WriteResultUtils{
-      public static WriteResult toWriteResult(Result res, int cur_ver, List<String> missingHashList){
+public final class Helpers{
+
+    static final class WriteResultBuilder{
+      static WriteResult toWriteResult(Result res, int cur_ver, List<String> missingHashList){
         WriteResult.Builder builder = WriteResult.newBuilder();
         builder.setResult(res)
                .setCurrentVersion(cur_ver);
-               
+
         if(missingHashList == null){
             missingHashList = new ArrayList<String>();
             builder.addAllMissingBlocks((Iterable<String>) missingHashList);
@@ -36,11 +34,8 @@ public final class Utils{
       }
     }
 
-    /**
-    * FileInfo utility class
-    **/
-    public static final class FileInfoUtils{
-      public static FileInfo toFileInfo(String fileName, int ver, List<String> hashList, boolean isDeleted){
+    static final class FileInfoBuilder{
+      static FileInfo toFileInfo(String fileName, int ver, List<String> hashList, boolean isDeleted){
         FileInfo.Builder builder = FileInfo.newBuilder();
         builder.setFilename(fileName)
                .setVersion(ver)
@@ -57,11 +52,8 @@ public final class Utils{
       }
     }
 
-    /**
-    * Hash utility class
-    **/
-    public static final class HashUtils{
-        public static String sha256(String s){
+   static final class HashBuilder{
+       static String getHashCode(String s){
             MessageDigest digest = null;
             try{
                 digest = digest.getInstance("SHA-256");
@@ -76,7 +68,7 @@ public final class Utils{
             return encoded;
         }
 
-        public static String sha256(byte[] b){
+       static String getHashCode(byte[] b){
             MessageDigest digest = null;
             try{
                 digest = digest.getInstance("SHA-256");
@@ -92,11 +84,8 @@ public final class Utils{
         }
     }
 
-    /**
-    * DataToBlock Utility class
-    **/
-    public static final class BlockUtils{
-        public static Block hashToBlock(String h){
+   static final class BlockBuilder{
+       static Block hashToBlock(String h){
           Block.Builder builder = Block.newBuilder();
           try{
             builder.setHash(h)
@@ -107,7 +96,7 @@ public final class Utils{
           return builder.build();
         }
 
-        public static Block stringToBlock(String s){
+       static Block stringToBlock(String s){
           Block.Builder builder = Block.newBuilder();
 
           try{
@@ -116,37 +105,25 @@ public final class Utils{
             throw new RuntimeException(e);
           }
 
-          builder.setHash(HashUtils.sha256(s));
+          builder.setHash(HashBuilder.getHashCode(s));
           return builder.build();
         }
 
-        public static Block bytesToBlock(byte[] b){
+       static Block bytesToBlock(byte[] b){
           Block.Builder builder = Block.newBuilder();
           builder.setData(ByteString.copyFrom(b));
-          builder.setHash(HashUtils.sha256(b));
+          builder.setHash(HashBuilder.getHashCode(b));
           return builder.build();
         }
     }
+}
 
-    /**********************
-    * Test Utility class
-    **********************/
-    public static final class TestUtils{
-      private static final Logger logger = Logger.getLogger(Client.class.getName());
-      public static void ensure(boolean b){
-        if(!b){
-          logger.warning("Assertion Failed");
-          throw new RuntimeException("Assertion failed");
-        }
-      }
-      // log message if test fail
-      public static void ensure(boolean b, String msg){
-        if(!b){
-          logger.warning("Assertion Failed");
-          logger.warning(msg);
-          throw new RuntimeException("Assertion failed");
-        }
-      }
-    }
-
+final class Configs{
+  public static final int BLOCK_SIZE = 4096;
+  public static final String UPLOAD = "upload";
+  public static final String DOWNLOAD = "download";
+  public static final String GETVERSION = "getversion";
+  public static final String DELETE = "delete";
+  public static final String NOTFOUND = "Not Found";
+  public static final String OK = "OK";
 }

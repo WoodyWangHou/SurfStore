@@ -1,5 +1,15 @@
 package surfstore;
 
+import net.sourceforge.argparse4j.ArgumentParsers;
+import net.sourceforge.argparse4j.inf.ArgumentParser;
+import net.sourceforge.argparse4j.inf.ArgumentParserException;
+import net.sourceforge.argparse4j.inf.Namespace;
+import surfstore.SurfStoreBasic.Empty;
+import surfstore.SurfStoreBasic.FileInfo;
+import surfstore.SurfStoreBasic.Block;
+import surfstore.SurfStoreBasic.SimpleAnswer;
+import surfstore.SurfStoreBasic.WriteResult;
+
 import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.Executors;
@@ -14,19 +24,8 @@ import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
-import net.sourceforge.argparse4j.ArgumentParsers;
-import net.sourceforge.argparse4j.inf.ArgumentParser;
-import net.sourceforge.argparse4j.inf.ArgumentParserException;
-import net.sourceforge.argparse4j.inf.Namespace;
-import surfstore.SurfStoreBasic.Empty;
-import surfstore.SurfStoreBasic.FileInfo;
-import surfstore.SurfStoreBasic.Block;
-import surfstore.SurfStoreBasic.SimpleAnswer;
-import surfstore.SurfStoreBasic.WriteResult;
-import surfstore.Utils.FileInfoUtils;
-import surfstore.Utils.BlockUtils;
-import surfstore.Utils.WriteResultUtils;
-import com.google.common.annotations.VisibleForTesting;
+
+import surfstore.Helpers.*;
 
 public final class MetadataStore {
     private static final Logger logger = Logger.getLogger(MetadataStore.class.getName());
@@ -44,7 +43,7 @@ public final class MetadataStore {
 
 	private void start(int port, int numThreads) throws IOException {
         server = ServerBuilder.forPort(port)
-                .addService(new MetadataStoreImpl(blockStub))
+                .addService(new MetadataStoreImpl(blockStub, this.config, port))
                 .executor(Executors.newFixedThreadPool(numThreads))
                 .build()
                 .start();
@@ -118,12 +117,16 @@ public final class MetadataStore {
         protected final Semaphore readWrite = new Semaphore(1,true);
         protected final Semaphore read = new Semaphore(1);
         protected int read_count;
+        protected final boolean isLeader;
+        protected boolean isCrashed;
 
-        public MetadataStoreImpl(BlockStoreGrpc.BlockStoreBlockingStub stub){
+        public MetadataStoreImpl(BlockStoreGrpc.BlockStoreBlockingStub stub, ConfigReader config, int port){
             super();
             this.metadataStore = new HashMap<String, FileInfo>();
             this.read_count = 0;
             this.blockStub = stub;
+            this.isLeader = config.getMetadataPort(config.getLeaderNum()) == port;
+            this.isCrashed = false;
         }
 
         @Override
@@ -175,7 +178,7 @@ public final class MetadataStore {
 
             if(res == null){
                 // not found
-                res = FileInfoUtils.toFileInfo(fileName, 0, null, false);
+                res = FileInfoBuilder.toFileInfo(fileName, 0, null, false);
             }
 
             try{
@@ -208,7 +211,7 @@ public final class MetadataStore {
 
             // file exist
             for(String hash : hashList){
-                Block req = BlockUtils.hashToBlock(hash);
+                Block req = BlockBuilder.hashToBlock(hash);
                 if(!blockStub.hasBlock(req).getAnswer()){
                   missing.add(hash);
                 }
@@ -258,16 +261,16 @@ public final class MetadataStore {
                 if(missing == null || missing.size() == 0){
                     // no missing block
                     // update block
-                    FileInfo newFile = FileInfoUtils.toFileInfo(fileName, cli_ver, request.getBlocklistList(), false);
+                    FileInfo newFile = FileInfoBuilder.toFileInfo(fileName, cli_ver, request.getBlocklistList(), false);
                     metadataStore.put(fileName, newFile);
-                    res = WriteResultUtils.toWriteResult(WriteResult.Result.OK, cli_ver, null);
+                    res = WriteResultBuilder.toWriteResult(WriteResult.Result.OK, cli_ver, null);
                 }else{
-                    res = WriteResultUtils.toWriteResult(WriteResult.Result.MISSING_BLOCKS, cur_ver, missing);
+                    res = WriteResultBuilder.toWriteResult(WriteResult.Result.MISSING_BLOCKS, cur_ver, missing);
                 }
 
             }else{
                 // version not correct
-                res = WriteResultUtils.toWriteResult(WriteResult.Result.OLD_VERSION, cur_ver, null);
+                res = WriteResultBuilder.toWriteResult(WriteResult.Result.OLD_VERSION, cur_ver, null);
             }
             readWrite.release();
             // end of Critical Section
@@ -301,14 +304,14 @@ public final class MetadataStore {
 
             if(cur_ver == 0){
                 // file not created
-                res = WriteResultUtils.toWriteResult(WriteResult.Result.OK, cur_ver, null);
+                res = WriteResultBuilder.toWriteResult(WriteResult.Result.OK, cur_ver, null);
             }else{
                 if(cur.getVersion() + 1 == cli_ver){
-                    FileInfo newFile = FileInfoUtils.toFileInfo(fileName, cli_ver, cur.getBlocklistList(), true);
+                    FileInfo newFile = FileInfoBuilder.toFileInfo(fileName, cli_ver, cur.getBlocklistList(), true);
                     metadataStore.put(fileName, newFile);
-                    res = WriteResultUtils.toWriteResult(WriteResult.Result.OK, cli_ver, null);
+                    res = WriteResultBuilder.toWriteResult(WriteResult.Result.OK, cli_ver, null);
                 }else{
-                    res = WriteResultUtils.toWriteResult(WriteResult.Result.OLD_VERSION, cur_ver, null);
+                    res = WriteResultBuilder.toWriteResult(WriteResult.Result.OLD_VERSION, cur_ver, null);
                 }
             }
 
@@ -349,7 +352,7 @@ public final class MetadataStore {
 
             FileInfo cur = metadataStore.getOrDefault(fileName, null);
             if(cur == null){
-                res = FileInfoUtils.toFileInfo(fileName, 0, null, false);
+                res = FileInfoBuilder.toFileInfo(fileName, 0, null, false);
             }else{
                 res = cur;
             }
@@ -368,56 +371,30 @@ public final class MetadataStore {
             responseObserver.onCompleted();
         }
 
-        // TODO: For part 2:
-        /**
-         * Query whether the MetadataStore server is currently the leader.
-         * This call should work even when the server is in a "crashed" state
-         * @param void
-         * @return true if this metastore is leader; false otherwise
-         */
         public void isLeader(Empty request,StreamObserver<SimpleAnswer> responseObserver) {
-
+          SimpleAnswer response = SimpleAnswer.newBuilder().setAnswer(this.isLeader).build();
+          responseObserver.onNext(response);
+          responseObserver.onCompleted();
         }
 
-        /**
-         * "Crash" the MetadataStore server.
-         * Until Restore() is called, the server should reply to all RPCs
-         * with an error (except Restore) and not send any RPCs to other servers.
-         */
         public void crash(Empty request,StreamObserver<Empty> responseObserver) {
-
+            this.isCrashed = true;
+            Empty response = Empty.newBuilder().build();
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
         }
 
-        /**
-         * "Restore" the MetadataStore server, allowing it to start
-         * sending and responding to all RPCs once again.
-         */
         public void restore(Empty request,StreamObserver<Empty> responseObserver) {
-
+            this.isCrashed = false;
+            Empty response = Empty.newBuilder().build();
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
         }
 
-        /**
-         * Find out if the node is crashed or not
-         * (should always work, even if the node is crashed)
-         * @return true if crashed; false if not
-         */
         public void isCrashed(Empty request,StreamObserver<SimpleAnswer> responseObserver) {
-
-        }
-    }
-
-    @VisibleForTesting
-    // config for centralized testing, need to modify for distributed version
-    void buildAndRunMetaStore(ConfigReader config) throws IOException, InterruptedException{
-      final MetadataStore server = new MetadataStore(config);
-      server.start(config.getMetadataPort(1), 1);
-      server.blockUntilShutdown();
-    }
-
-    @VisibleForTesting
-    void forceStop(){
-        if(server != null){
-          server.shutdown();
+          SimpleAnswer response = SimpleAnswer.newBuilder().setAnswer(this.isCrashed).build();
+          responseObserver.onNext(response);
+          responseObserver.onCompleted();
         }
     }
 }

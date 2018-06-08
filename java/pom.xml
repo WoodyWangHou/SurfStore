@@ -45,42 +45,6 @@
 		  <artifactId>guava</artifactId>
 		  <version>25.1-jre</version>
 		</dependency>
-      <dependency>
-         <groupId>org.junit.jupiter</groupId>
-         <artifactId>junit-jupiter-api</artifactId>
-         <version>${junit.jupiter.version}</version>
-         <scope>test</scope>
-      </dependency>
-			<dependency>
-				 <groupId>org.junit.platform</groupId>
-				 <artifactId>junit-platform-console</artifactId>
-				 <version>${junit.platform.version}</version>
-				 <scope>test</scope>
-			</dependency>
-		 <dependency>
-		    <groupId>org.junit.jupiter</groupId>
-		    <artifactId>junit-jupiter-engine</artifactId>
-		    <version>${junit.jupiter.version}</version>
-		    <scope>test</scope>
-		</dependency>
-		<dependency>
-		    <groupId>org.junit.vintage</groupId>
-		    <artifactId>junit-vintage-engine</artifactId>
-		    <version>${junit.jupiter.version}</version>
-		    <scope>test</scope>
-		</dependency>
-		<dependency>
-		    <groupId>org.junit.platform</groupId>
-		    <artifactId>junit-platform-launcher</artifactId>
-		    <version>${junit.platform.version}</version>
-		    <scope>test</scope>
-		</dependency>
-		<dependency>
-		    <groupId>org.junit.platform</groupId>
-		    <artifactId>junit-platform-runner</artifactId>
-		    <version>${junit.platform.version}</version>
-		    <scope>test</scope>
-		</dependency>
 	</dependencies>
 
 	<build>
@@ -103,24 +67,6 @@
 					<source>1.7</source>
 					<target>1.7</target>
 				</configuration>
-			</plugin>
-
-			<plugin>
-					<artifactId>maven-surefire-plugin</artifactId>
-					<version>2.21.0</version>
-					<configuration>alphabetical</configuration>
-					<dependencies>
-							<dependency>
-									<groupId>org.junit.platform</groupId>
-									<artifactId>junit-platform-surefire-provider</artifactId>
-									<version>1.2.0</version>
-							</dependency>
-							<dependency>
-								 <groupId>org.junit.jupiter</groupId>
-								 <artifactId>junit-jupiter-engine</artifactId>
-								 <version>${junit.jupiter.version}</version>
-						 </dependency>
-					</dependencies>
 			</plugin>
 
 			<plugin>
